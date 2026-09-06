@@ -1,0 +1,39 @@
+{
+  "mcpServers": {
+    "job-scraper-mcp": {
+      "url": "http://localhost:8001/mcp",
+      "transport": "streamable_http",
+      "description": "Ergon: Ekstraksi data lowongan kerja dari URL, PDF, atau gambar/screenshot"
+    },
+    "company-intel-mcp": {
+      "url": "http://localhost:8002/mcp",
+      "transport": "streamable_http",
+      "description": "Ergon: Riset kontekstual perusahaan \u2014 berita terbaru, produk, funding, konteks rekrutmen"
+    },
+    "resume-parser-mcp": {
+      "url": "http://localhost:8003/mcp",
+      "transport": "streamable_http",
+      "description": "Ergon: Parsing CV/resume menjadi data terstruktur (riwayat kerja, pendidikan, skill)"
+    },
+    "portfolio-analyzer-mcp": {
+      "url": "http://localhost:8004/mcp",
+      "transport": "streamable_http",
+      "description": "Ergon: Analisis portofolio \u2014 GitHub, Behance, situs personal, PDF case study"
+    },
+    "scoring-engine-mcp": {
+      "url": "http://localhost:8005/mcp",
+      "transport": "streamable_http",
+      "description": "Ergon: Scoring kecocokan CV-loker komposit dengan breakdown dan generasi saran"
+    },
+    "cv-generator-mcp": {
+      "url": "http://localhost:8006/mcp",
+      "transport": "streamable_http",
+      "description": "Ergon: Generate CV hasil revisi dalam PDF/DOCX berdasarkan saran perbaikan"
+    },
+    "payment-mcp": {
+      "url": "http://localhost:8007/mcp",
+      "transport": "streamable_http",
+      "description": "Ergon: Payment processing via Midtrans Snap untuk unlock analisis"
+    }
+  }
+}
