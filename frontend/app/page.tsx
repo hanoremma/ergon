@@ -8,7 +8,7 @@ export default function Home() {
       <Nav />
 
       {/* Hero */}
-      <section style={{ background: "var(--bg-hero)", borderRadius: "0 0 40px 40px", paddingBottom: 80 }}>
+      <section style={{ background: "var(--bg-hero)", borderRadius: "0 0 40px 40px", paddingBottom: 80, overflow: "hidden" }}>
         <div style={{
           maxWidth: 1160, margin: "0 auto", padding: "0 32px",
           display: "grid", gridTemplateColumns: "1.05fr 0.95fr",
@@ -41,8 +41,8 @@ export default function Home() {
           </div>
 
           {/* Hero Illustration */}
-          <div style={{ position: "relative", height: 400 }}>
-            <svg style={{ position: "absolute", top: -38, right: 60, color: "var(--accent)" }}
+          <div style={{ position: "relative", height: 400, paddingTop: 52 }}>
+            <svg style={{ position: "absolute", top: 12, right: 60, color: "var(--accent)" }}
               width="90" height="70" viewBox="0 0 90 70" fill="none">
               <path d="M4 66C30 66 46 40 46 22C46 10 56 4 70 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeDasharray="1 7"/>
               <path d="M62 2L71 6L66 15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
@@ -50,7 +50,7 @@ export default function Home() {
 
             {/* Score chip */}
             <div style={{
-              position: "absolute", top: -6, right: 0,
+              position: "absolute", top: 8, right: 0,
               background: "var(--accent)", color: "#fff",
               borderRadius: 14, padding: "10px 16px",
               display: "flex", alignItems: "center", gap: 8,
@@ -65,7 +65,7 @@ export default function Home() {
 
             {/* Browser mockup */}
             <div style={{
-              position: "absolute", top: 10, left: 10, right: 40, bottom: 30,
+              position: "absolute", top: 62, left: 10, right: 40, bottom: 30,
               background: "#fff", borderRadius: 18,
               border: "1.5px solid var(--line)",
               boxShadow: "0 30px 60px -20px rgba(33,29,61,0.18)",
