@@ -12,66 +12,79 @@ import httpx
 from fastmcp import FastMCP
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)
 
 mcp = FastMCP(
     name="scoring-engine-mcp",
     instructions="MCP server untuk scoring kecocokan CV-loker dengan breakdown per kategori dan generasi saran perbaikan.",
 )
 
-WATSONX_API_KEY = os.getenv("WATSONX_API_KEY", "")
-WATSONX_URL = os.getenv("WATSONX_URL", "https://us-south.ml.cloud.ibm.com")
-WATSONX_PROJECT_ID = os.getenv("WATSONX_PROJECT_ID", "")
+OPENAI_COMPAT_BASE_URL = os.getenv("OPENAI_COMPATIBLE_BASE_URL", "").rstrip("/")
+OPENAI_COMPAT_API_KEY  = os.getenv("OPENAI_COMPATIBLE_API_KEY", "")
+# ergon-scoring-engine may be a heavy model — use fast model for suggestions generation
+OPENAI_COMPAT_MODEL    = os.getenv("OPENAI_COMPAT_SCORING_MODEL", "gemini/gemini-3.5-flash-lite")
 
 
-async def get_iam_token() -> str:
-    async with httpx.AsyncClient(timeout=15) as client:
-        resp = await client.post(
-            "https://iam.cloud.ibm.com/identity/token",
-            data={"grant_type": "urn:ibm:params:oauth:grant-type:apikey", "apikey": WATSONX_API_KEY},
-        )
-        resp.raise_for_status()
-        return resp.json()["access_token"]
+def _parse_openai_response(raw: str) -> str:
+    """Parse both non-streaming JSON and SSE streaming responses, including thinking models."""
+    raw = raw.strip()
+    if not raw:
+        return ""
+    # Non-streaming: starts with { (possibly after leading whitespace)
+    stripped = raw.lstrip()
+    if stripped.startswith("{"):
+        try:
+            import json as _json
+            decoder = _json.JSONDecoder()
+            data, _ = decoder.raw_decode(stripped)
+            msg = data["choices"][0]["message"]
+            # Some thinking models put answer in content; reasoning is separate
+            return msg.get("content", "") or ""
+        except Exception:
+            pass
+    # SSE streaming: collect all delta content chunks
+    content = ""
+    for line in raw.splitlines():
+        if line.startswith("data:"):
+            chunk = line[5:].strip()
+            if chunk == "[DONE]":
+                break
+            try:
+                import json as _json
+                obj = _json.loads(chunk)
+                delta = obj.get("choices", [{}])[0].get("delta", {})
+                content += delta.get("content", "") or ""
+            except Exception:
+                pass
+    return content
 
 
 async def call_granite(prompt: str, max_tokens: int = 1500) -> str:
+    """Call LLM via OpenAI-compatible endpoint."""
+    if not OPENAI_COMPAT_BASE_URL or not OPENAI_COMPAT_API_KEY:
+        return json.dumps({"error": "LLM not configured"})
     try:
-        token = await get_iam_token()
-        async with httpx.AsyncClient(timeout=45) as client:
+        async with httpx.AsyncClient(timeout=35) as client:
             resp = await client.post(
-                f"{WATSONX_URL}/ml/v1/text/generation?version=2024-05-31",
-                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                f"{OPENAI_COMPAT_BASE_URL}/chat/completions",
+                headers={"Authorization": f"Bearer {OPENAI_COMPAT_API_KEY}", "Content-Type": "application/json"},
                 json={
-                    "model_id": "ibm/granite-13b-instruct-v2",
-                    "project_id": WATSONX_PROJECT_ID,
-                    "input": prompt,
-                    "parameters": {"max_new_tokens": max_tokens, "temperature": 0.15},
+                    "model": OPENAI_COMPAT_MODEL,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": max_tokens,
+                    "temperature": 0.15,
+                    "stream": False,
                 },
             )
             resp.raise_for_status()
-            return resp.json()["results"][0]["generated_text"]
+            return _parse_openai_response(resp.text)
     except Exception as e:
         return json.dumps({"error": str(e)})
 
 
 async def get_watsonx_embedding(text: str) -> list[float]:
-    """Get text embedding from watsonx.ai."""
-    try:
-        token = await get_iam_token()
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(
-                f"{WATSONX_URL}/ml/v1/text/embeddings?version=2024-05-31",
-                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-                json={
-                    "model_id": "ibm/slate-125m-english-rtrvr",
-                    "project_id": WATSONX_PROJECT_ID,
-                    "inputs": [text[:512]],
-                },
-            )
-            resp.raise_for_status()
-            return resp.json()["results"][0]["embedding"]
-    except Exception:
-        return []
+    """Embedding — returns empty list (no embedding service configured)."""
+    return []
 
 
 def cosine_similarity(a: list[float], b: list[float]) -> float:
@@ -88,13 +101,12 @@ def cosine_similarity(a: list[float], b: list[float]) -> float:
 def keyword_overlap_score(cv_skills: list[str], job_requirements: list[str]) -> tuple[float, list[str], list[str]]:
     """Calculate keyword overlap between CV skills and job requirements."""
     if not job_requirements:
-        return 0.5, [], []
+        return None, [], []   # None = no data, caller decides fallback
     cv_lower = {s.lower().strip() for s in cv_skills}
     matched = []
     missing = []
     for req in job_requirements:
         req_lower = req.lower().strip()
-        # Fuzzy match: check if any CV skill contains the requirement word or vice versa
         found = any(
             req_lower in cv_skill or cv_skill in req_lower or
             any(word in cv_lower for word in req_lower.split())
@@ -104,8 +116,49 @@ def keyword_overlap_score(cv_skills: list[str], job_requirements: list[str]) -> 
             matched.append(req)
         else:
             missing.append(req)
-    score = len(matched) / len(job_requirements) if job_requirements else 0.5
+    score = len(matched) / len(job_requirements) if job_requirements else 0.0
     return score, matched, missing
+
+
+async def llm_domain_relevance(cv_skills: list[str], cv_experience: list[dict], job_title: str, job_url: str) -> float:
+    """
+    Use LLM to estimate domain relevance between CV and job when no requirements data available.
+    Returns 0.0–1.0. Fast call with small token budget.
+    """
+    if not cv_skills and not cv_experience:
+        return 0.5  # No CV data — can't judge
+
+    # Build CV domain summary
+    exp_titles = [f"{e.get('position','')} at {e.get('company','')}" for e in (cv_experience or [])[:3] if e.get('position')]
+    cv_summary = ", ".join(cv_skills[:8])
+    if exp_titles:
+        cv_summary += " | Pengalaman: " + "; ".join(exp_titles)
+
+    job_context = job_title or job_url or "tidak diketahui"
+
+    prompt = (
+        f"Nilai relevansi antara profil CV dan loker dari 0.0 sampai 1.0.\n"
+        f"CV domain: {cv_summary}\n"
+        f"Loker: {job_context}\n\n"
+        f"Aturan:\n"
+        f"- 0.0-0.2: Domain sangat berbeda (misal AI Engineer melamar desain grafis/akuntan/hukum)\n"
+        f"- 0.2-0.4: Domain cukup berbeda (misal AI Engineer melamar marketing/sales)\n"
+        f"- 0.4-0.6: Ada sedikit relevansi (misal AI Engineer melamar IT generalis)\n"
+        f"- 0.6-0.8: Domain relevan (misal AI Engineer melamar software engineer)\n"
+        f"- 0.8-1.0: Domain sangat cocok (misal AI Engineer melamar AI/ML/NLP Engineer)\n\n"
+        f"Jawab HANYA satu angka desimal, contoh: 0.75\nNilai:"
+    )
+
+    try:
+        llm_output = await call_granite(prompt, max_tokens=10)
+        # Extract first float from response
+        match = re.search(r"0?\.\d+|[01]\.?\d*", llm_output.strip())
+        if match:
+            val = float(match.group())
+            return max(0.0, min(1.0, val))
+    except Exception:
+        pass
+    return 0.5
 
 
 def estimate_seniority_match(cv_years: int, job_seniority: str) -> float:
@@ -151,7 +204,7 @@ async def calculate_match_score(
     Returns:
         Dict dengan overall_score, label, breakdown per kategori, dan matched/missing skills
     """
-    # ─── 1. Keyword/Skill Coverage (30%) ──────────────────────────────────────
+    # ─── Extract CV skills & job context ──────────────────────────────────────
     cv_skills = []
     cv_skills_data = cv_data.get("skills", {})
     if isinstance(cv_skills_data, dict):
@@ -163,25 +216,56 @@ async def calculate_match_score(
     elif isinstance(cv_skills_data, list):
         cv_skills = cv_skills_data
 
-    job_hard = job_data.get("requirements_hard_skill", [])
-    job_soft = job_data.get("requirements_soft_skill", [])
+    cv_work_exp = cv_data.get("work_experience", []) or []
+
+    job_hard = (
+        job_data.get("requirements_hard_skill") or
+        job_data.get("requirements") or
+        []
+    )
+    job_soft = job_data.get("requirements_soft_skill") or []
     all_job_reqs = job_hard + job_soft
 
-    keyword_score, matched_skills, missing_skills = keyword_overlap_score(cv_skills, all_job_reqs)
+    job_title = job_data.get("position", "") or job_data.get("title", "") or ""
+    job_url   = job_data.get("source_url", "") or job_data.get("_raw_input", "") or ""
+
+    # Detect whether we have real job data or just a URL (scraping failed)
+    job_has_content = bool(all_job_reqs or job_data.get("responsibilities") or job_title)
+
+    # ─── 1. Keyword/Skill Coverage (30%) ──────────────────────────────────────
+    keyword_score_raw, matched_skills, missing_skills = keyword_overlap_score(cv_skills, all_job_reqs)
+
+    if keyword_score_raw is None:
+        # No job requirements — use LLM domain relevance as proxy for keyword match
+        domain_score = await llm_domain_relevance(cv_skills, cv_work_exp, job_title, job_url)
+        keyword_score = domain_score
+        keyword_detail = f"Estimasi relevansi domain CV vs loker (job scraping tidak tersedia)"
+    else:
+        keyword_score = keyword_score_raw
+        keyword_detail = f"Cocok: {len(matched_skills)} dari {len(all_job_reqs)} skill yang dibutuhkan"
 
     # ─── 2. Semantic Fit (25%) ─────────────────────────────────────────────────
     cv_experience_text = " ".join([
         f"{exp.get('position', '')} at {exp.get('company', '')}: {' '.join(exp.get('responsibilities', [])[:3])}"
-        for exp in (cv_data.get("work_experience", []) or [])[:3]
+        for exp in cv_work_exp[:3]
     ])
     job_responsibilities_text = " ".join(job_data.get("responsibilities", [])[:5])
 
-    semantic_score = 0.6  # default
-    if cv_experience_text and job_responsibilities_text:
-        emb_cv = await get_watsonx_embedding(cv_experience_text)
-        emb_job = await get_watsonx_embedding(job_responsibilities_text)
-        if emb_cv and emb_job:
-            semantic_score = cosine_similarity(emb_cv, emb_job)
+    # If no job responsibilities AND we already computed domain_score, reuse it for semantic
+    if not job_responsibilities_text and not job_has_content:
+        # domain_score already computed above — use it with slight variation
+        domain_score_for_semantic = (
+            domain_score if keyword_score_raw is None
+            else await llm_domain_relevance(cv_skills, cv_work_exp, job_title, job_url)
+        )
+        semantic_score = domain_score_for_semantic * 0.9  # slightly lower than domain (no detail)
+    else:
+        semantic_score = 0.6  # default when no embedding
+        if cv_experience_text and job_responsibilities_text:
+            emb_cv = await get_watsonx_embedding(cv_experience_text)
+            emb_job = await get_watsonx_embedding(job_responsibilities_text)
+            if emb_cv and emb_job:
+                semantic_score = cosine_similarity(emb_cv, emb_job)
 
     # ─── 3. Seniority Match (15%) ──────────────────────────────────────────────
     cv_years = int(cv_data.get("total_years_experience", 0) or 0)
@@ -189,7 +273,7 @@ async def calculate_match_score(
     seniority_score = estimate_seniority_match(cv_years, job_seniority)
 
     # ─── 4. Portfolio Relevance (15%) ─────────────────────────────────────────
-    portfolio_score = 0.6  # default if no portfolio
+    portfolio_score = 0.5  # lower default — no data means uncertain
     if portfolio_data and portfolio_data.get("available"):
         portfolio_score = (portfolio_data.get("relevance_score", 60)) / 100
 
@@ -256,14 +340,14 @@ async def calculate_match_score(
     if overall_pct >= 80:
         label, label_class = "Tinggi", "high"
     elif overall_pct >= 60:
-        label, label_class = "Sedang–Tinggi", "medium-high"
+        label, label_class = "Sedang-Tinggi", "medium-high"
     elif overall_pct >= 40:
         label, label_class = "Sedang", "medium"
     else:
-        label, label_class = "Rendah–Sedang", "low-medium"
+        label, label_class = "Rendah-Sedang", "low-medium"
 
-    # Score range (±8%)
-    score_range = f"{max(0, overall_pct - 8)}–{min(100, overall_pct + 8)}%"
+    # Score range (+-8%) — use ASCII hyphen to avoid encoding issues
+    score_range = f"{max(0, overall_pct - 8)}-{min(100, overall_pct + 8)}%"
 
     return {
         "overall_score": overall_pct,
@@ -276,13 +360,17 @@ async def calculate_match_score(
                 "category": "Keyword & Skill Coverage",
                 "score": round(keyword_score * 100),
                 "weight": "30%",
-                "detail": f"Cocok: {len(matched_skills)} dari {len(all_job_reqs)} skill yang dibutuhkan",
+                "detail": keyword_detail,
             },
             {
                 "category": "Kecocokan Semantik Pengalaman",
                 "score": round(semantic_score * 100),
                 "weight": "25%",
-                "detail": "Kemiripan semantik antara pengalaman CV dan tanggung jawab loker",
+                "detail": (
+                    "Relevansi pengalaman CV terhadap domain loker (estimasi LLM)"
+                    if not job_has_content
+                    else "Kemiripan semantik antara pengalaman CV dan tanggung jawab loker"
+                ),
             },
             {
                 "category": "Kesesuaian Level (Seniority)",
@@ -344,28 +432,49 @@ async def generate_suggestions(
         if b.get("score") is not None and b.get("score", 100) < 70
     ]
 
-    prompt = f"""Kamu adalah konsultan CV yang membantu jobseeker meningkatkan kecocokan CV mereka dengan lowongan kerja.
+    position = job_data.get("position", "") or job_data.get("title", "") or ""
+    company = job_data.get("company", "") or ""
+    # Try to extract job context from raw_input URL if position is unknown
+    raw_input = job_data.get("_raw_input", "") or job_data.get("source_url", "") or ""
+    job_context = f"{position} di {company}" if position else (f"dari {raw_input}" if raw_input else "yang dilamar")
 
-Data analisis:
-- Posisi: {job_data.get('position', '')} di {job_data.get('company', '')}
-- Skor kecocokan saat ini: {overall}%
-- Skill yang kurang di CV: {', '.join(missing_skills[:8])}
-- Kategori yang perlu ditingkatkan: {', '.join([b['category'] for b in low_categories])}
+    cv_skills_list = []
+    cv_skills_data = cv_data.get("skills", {})
+    if isinstance(cv_skills_data, dict):
+        cv_skills_list = (
+            cv_skills_data.get("technical", []) +
+            cv_skills_data.get("tools", [])
+        )[:8]
+    elif isinstance(cv_skills_data, list):
+        cv_skills_list = cv_skills_data[:8]
 
-Informasi CV:
-- Pengalaman: {cv_data.get('total_years_experience', 0)} tahun
-- Skills saat ini: {', '.join((cv_data.get('skills') or {}).get('technical', [])[:8])}
+    cv_years = cv_data.get("total_years_experience", 0) or 0
 
-Buat TEPAT 6 saran perbaikan CV yang konkret dan actionable, diranking dari dampak terbesar.
-Saran harus spesifik (sebut apa yang perlu diubah/ditambah), bukan generik.
+    # Build score context sentence
+    score_context = f"Skor kecocokan: {overall}%"
+    if low_categories:
+        score_context += f". Kategori lemah: {', '.join([b['category'] for b in low_categories])}"
+    if missing_skills:
+        score_context += f". Skill yang kurang: {', '.join(missing_skills[:6])}"
 
-Format JSON (array dengan tepat 6 item):
+    prompt = f"""Kamu adalah konsultan CV profesional. Bantu jobseeker meningkatkan CV mereka untuk posisi {job_context}.
+
+Konteks analisis:
+- {score_context}
+- Pengalaman CV: {cv_years} tahun
+- Skills di CV: {', '.join(cv_skills_list) if cv_skills_list else 'tidak terdeteksi'}
+
+Berikan TEPAT 6 saran perbaikan CV yang KONKRET dan ACTIONABLE, diranking dari dampak terbesar ke terkecil.
+Saran harus menyebut tindakan spesifik yang bisa langsung dilakukan. JANGAN generik seperti "perbaiki CV kamu".
+Fokus pada: menambahkan angka/metrik, keyword ATS, professional summary, urutan skill, format pengalaman, portofolio.
+
+Format JSON (array tepat 6 item, tidak ada teks lain di luar array):
 [
   {{
     "rank": 1,
     "title": "Judul saran singkat (max 60 karakter)",
-    "detail": "Penjelasan detail konkret apa yang harus dilakukan (1-3 kalimat)",
-    "impact": "+X% estimasi kenaikan skor",
+    "detail": "Penjelasan konkret 1-2 kalimat: apa yang diubah/ditambah dan contoh spesifiknya",
+    "impact": "+X%",
     "category": "skill/experience/format/portfolio",
     "effort": "rendah/sedang/tinggi"
   }}
@@ -375,8 +484,9 @@ Array JSON:"""
 
     try:
         llm_output = await call_granite(prompt, max_tokens=1200)
-        # Find JSON array
-        json_match = re.search(r"\[.*\]", llm_output, re.DOTALL)
+        # Strip markdown code fences if present
+        llm_clean = re.sub(r"```(?:json)?\s*", "", llm_output).strip()
+        json_match = re.search(r"\[.*\]", llm_clean, re.DOTALL)
         if json_match:
             suggestions = json.loads(json_match.group())
             # Mark first 3 as free
@@ -387,52 +497,107 @@ Array JSON:"""
     except Exception as e:
         pass
 
-    # Fallback suggestions based on scoring
+    # Fallback suggestions based on scoring — no placeholder entries
     fallback = []
+
+    job_title = position  # already extracted above
+    missing_str = ", ".join(missing_skills[:3]) if missing_skills else ""
+
+    # Identify which categories score low to make fallback smarter
+    low_cat_names = {b["category"].lower() for b in low_categories}
+    has_low_keyword = any("keyword" in c or "skill" in c for c in low_cat_names)
+    has_low_semantic = any("semantik" in c or "pengalaman" in c for c in low_cat_names)
+    has_low_portfolio = any("portofolio" in c for c in low_cat_names)
+    has_low_quality = any("kualitas" in c or "kelengkapan" in c for c in low_cat_names)
+
+    # Dynamic entry based on missing skills (highest priority)
     if missing_skills:
         fallback.append({
-            "rank": 1, "title": f"Tambahkan skill yang kurang: {', '.join(missing_skills[:3])}",
-            "detail": f"Loker meminta skill berikut yang tidak ditemukan di CV kamu: {', '.join(missing_skills[:5])}. Jika kamu memilikinya, tambahkan ke bagian Skills.",
+            "rank": 1,
+            "title": f"Tambahkan skill yang hilang: {', '.join(missing_skills[:3])}",
+            "detail": (
+                f"Skill berikut ada di job description tapi tidak ditemukan di CV kamu: {', '.join(missing_skills[:5])}. "
+                "Jika kamu menguasainya, tambahkan eksplisit di bagian Skills atau di deskripsi pengalaman."
+            ),
             "impact": "+8%", "category": "skill", "effort": "rendah", "free": True,
         })
 
-    # Check for unquantified achievements
-    for exp in (cv_data.get("work_experience") or []):
-        if exp.get("flags") and "belum terkuantifikasi" in str(exp.get("flags", [])):
-            fallback.append({
-                "rank": len(fallback) + 1,
-                "title": "Tambahkan angka/metrik ke pencapaian",
-                "detail": "Ubah kalimat pencapaian generik menjadi konkret dengan angka. Contoh: 'meningkatkan penjualan' → 'meningkatkan penjualan 35% dalam Q1 2025'.",
-                "impact": "+6%", "category": "experience", "effort": "rendah", "free": True,
-            })
-            break
-
-    # Pad with generic but useful suggestions
-    generic = [
-        {"title": "Perkuat professional summary", "detail": "Tulis 2-3 kalimat pembuka yang secara langsung menyebutkan posisi yang dilamar dan nilai tambah utama kamu.", "impact": "+5%", "category": "format", "effort": "sedang"},
-        {"title": "Sesuaikan urutan skill", "detail": "Pindahkan skill yang paling relevan dengan loker ke posisi pertama di bagian Skills.", "impact": "+4%", "category": "skill", "effort": "rendah"},
-        {"title": "Tambahkan proyek portofolio relevan", "detail": "Sertakan 2-3 proyek yang paling relevan dengan posisi yang dilamar, lengkap dengan hasil yang terukur.", "impact": "+4%", "category": "portfolio", "effort": "sedang"},
-        {"title": "Perbarui LinkedIn & GitHub di header", "detail": "Pastikan URL LinkedIn dan GitHub aktif ada di bagian header CV untuk memudahkan rekruter memverifikasi.", "impact": "+3%", "category": "format", "effort": "rendah"},
+    # Meaningful pool — ordered by relevance to low-scoring categories
+    generic_pool = [
+        {
+            "title": "Tambahkan angka/metrik ke setiap pencapaian",
+            "detail": "Ubah pencapaian generik menjadi konkret dengan angka nyata, misal: 'meningkatkan efisiensi proses 30%' atau 'mengelola tim 5 engineer dalam 2 sprint'.",
+            "impact": "+8%", "category": "experience", "effort": "rendah",
+            "_priority": 10 if has_low_semantic else 5,
+        },
+        {
+            "title": "Perkuat professional summary",
+            "detail": (
+                f"Tulis 2-3 kalimat pembuka yang langsung menyebutkan posisi"
+                f"{' ' + job_title if job_title else ' yang dilamar'}, level seniority, dan satu pencapaian terbesar yang relevan."
+            ),
+            "impact": "+5%", "category": "format", "effort": "sedang",
+            "_priority": 9 if has_low_quality else 4,
+        },
+        {
+            "title": "Sesuaikan keyword ATS dengan job description",
+            "detail": (
+                f"Tambahkan kata kunci teknis dari job description ke bagian Skills dan ringkasan CV"
+                f"{(': ' + missing_str) if missing_str else ''}. "
+                "Rekruter dan sistem ATS memindai kata kunci ini secara eksplisit."
+            ),
+            "impact": "+6%", "category": "skill", "effort": "rendah",
+            "_priority": 10 if has_low_keyword else 6,
+        },
+        {
+            "title": "Tambahkan proyek portofolio relevan",
+            "detail": (
+                f"Sertakan 2-3 proyek yang paling relevan{' dengan posisi ' + job_title if job_title else ''},"
+                " lengkap dengan tech stack yang dipakai dan hasil terukur (misal: 'akurasi model 92%', '10k DAU')."
+            ),
+            "impact": "+4%", "category": "portfolio", "effort": "sedang",
+            "_priority": 10 if has_low_portfolio else 3,
+        },
+        {
+            "title": "Format ulang pengalaman kerja dengan pola STAR",
+            "detail": "Susun ulang setiap bullet poin pengalaman dengan format: Situasi singkat → Tindakan yang kamu ambil → Hasil konkret. Hindari bullet pasif seperti 'bertanggung jawab atas...'.",
+            "impact": "+4%", "category": "experience", "effort": "sedang",
+            "_priority": 8 if has_low_semantic else 4,
+        },
+        {
+            "title": "Susun ulang urutan skill sesuai prioritas loker",
+            "detail": (
+                f"Pindahkan skill teknis paling relevan ke posisi pertama di bagian Skills"
+                f"{' untuk posisi ' + job_title if job_title else ''}. "
+                "Rekruter membaca CV dalam 6-10 detik — letakkan yang paling relevan di atas."
+            ),
+            "impact": "+3%", "category": "skill", "effort": "rendah",
+            "_priority": 7 if has_low_keyword else 3,
+        },
+        {
+            "title": "Perbarui profil LinkedIn & GitHub di header",
+            "detail": "Pastikan URL LinkedIn (aktif, up-to-date) dan GitHub (berisi proyek publik) tercantum di header CV. Rekruter hampir selalu memverifikasi profil online.",
+            "impact": "+3%", "category": "format", "effort": "rendah",
+            "_priority": 5,
+        },
     ]
-    for i, g in enumerate(generic):
+
+    # Sort generic_pool by priority descending, then add to fallback
+    generic_pool_sorted = sorted(generic_pool, key=lambda x: x.pop("_priority", 0), reverse=True)
+    existing_titles = {f.get("title") for f in fallback}
+    for g in generic_pool_sorted:
         if len(fallback) >= 6:
             break
+        if g["title"] in existing_titles:
+            continue
         fallback.append({
             "rank": len(fallback) + 1,
             "free": len(fallback) < 3,
             **g,
         })
+        existing_titles.add(g["title"])
 
-    while len(fallback) < 6:
-        fallback.append({
-            "rank": len(fallback) + 1,
-            "title": f"Saran perbaikan #{len(fallback) + 1}",
-            "detail": "Analisis detail tersedia setelah unlock.",
-            "impact": "+2%", "category": "format", "effort": "rendah",
-            "free": len(fallback) < 3,
-        })
-
-    return {"suggestions": fallback[:6], "total_count": 6}
+    return {"suggestions": fallback, "total_count": len(fallback)}
 
 
 @mcp.tool()
@@ -469,3 +634,4 @@ async def get_embedding_similarity(text_a: str, text_b: str) -> dict:
 if __name__ == "__main__":
     port = int(os.getenv("SCORING_ENGINE_MCP_PORT", "8005"))
     mcp.run(transport="streamable-http", host="0.0.0.0", port=port, path="/mcp")
+

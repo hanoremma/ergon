@@ -23,7 +23,7 @@ function ConfirmInner() {
     }}>
       <div style={{
         width: 40, height: 40, borderRadius: "50%",
-        border: "3px solid var(--accent-soft)",
+        border: "3px solid var(--line)",
         borderTop: "3px solid var(--accent)",
         animation: "spin 1s linear infinite",
       }} />
@@ -41,7 +41,7 @@ export default function UnlockConfirmPage() {
       }}>
         <div style={{
           width: 40, height: 40, borderRadius: "50%",
-          border: "3px solid var(--accent-soft)",
+          border: "3px solid var(--line)",
           borderTop: "3px solid var(--accent)",
           animation: "spin 1s linear infinite",
         }} />

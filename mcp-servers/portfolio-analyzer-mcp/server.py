@@ -13,7 +13,7 @@ import httpx
 from fastmcp import FastMCP
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)
 
 mcp = FastMCP(
     name="portfolio-analyzer-mcp",

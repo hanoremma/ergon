@@ -15,16 +15,16 @@ from pydantic import BaseModel
 from fastmcp import FastMCP
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)
 
 mcp = FastMCP(
     name="job-scraper-mcp",
     instructions="MCP server untuk ekstraksi data lowongan kerja dari URL, PDF, atau gambar.",
 )
 
-WATSONX_API_KEY = os.getenv("WATSONX_API_KEY", "")
-WATSONX_URL = os.getenv("WATSONX_URL", "https://us-south.ml.cloud.ibm.com")
-WATSONX_PROJECT_ID = os.getenv("WATSONX_PROJECT_ID", "")
+OPENAI_COMPAT_BASE_URL = os.getenv("OPENAI_COMPATIBLE_BASE_URL", "").rstrip("/")
+OPENAI_COMPAT_API_KEY  = os.getenv("OPENAI_COMPATIBLE_API_KEY", "")
+OPENAI_COMPAT_MODEL    = os.getenv("OPENAI_COMPAT_JOB_MODEL", "gemini/gemini-3.5-flash-lite")
 
 
 # ─── Schema ─────────────────────────────────────────────────────────────────────
@@ -45,46 +45,67 @@ class JobData(BaseModel):
     extraction_notes: list[str] = []
 
 
-# ─── Watsonx LLM Helper ─────────────────────────────────────────────────────────
+# ─── LLM Helper (OpenAI-compatible endpoint) ────────────────────────────────────
+
+def _parse_openai_response(raw: str) -> str:
+    """Parse both non-streaming JSON and SSE streaming responses, including thinking models."""
+    raw = raw.strip()
+    if not raw:
+        return ""
+    # Non-streaming: starts with { (possibly after leading whitespace)
+    stripped = raw.lstrip()
+    if stripped.startswith("{"):
+        try:
+            import json as _json
+            decoder = _json.JSONDecoder()
+            data, _ = decoder.raw_decode(stripped)
+            msg = data["choices"][0]["message"]
+            # Some thinking models put answer in content; reasoning is separate
+            return msg.get("content", "") or ""
+        except Exception:
+            pass
+    # SSE streaming: collect all delta content chunks
+    content = ""
+    for line in raw.splitlines():
+        if line.startswith("data:"):
+            chunk = line[5:].strip()
+            if chunk == "[DONE]":
+                break
+            try:
+                import json as _json
+                obj = _json.loads(chunk)
+                delta = obj.get("choices", [{}])[0].get("delta", {})
+                content += delta.get("content", "") or ""
+            except Exception:
+                pass
+    return content
+
 
 async def call_granite(prompt: str, max_tokens: int = 1024) -> str:
-    """Call IBM watsonx.ai Granite model for text processing."""
-    iam_url = "https://iam.cloud.ibm.com/identity/token"
-    token_payload = {
-        "grant_type": "urn:ibm:params:oauth:grant-type:apikey",
-        "apikey": WATSONX_API_KEY,
+    """Call LLM via OpenAI-compatible endpoint for structured text extraction."""
+    if not OPENAI_COMPAT_BASE_URL or not OPENAI_COMPAT_API_KEY:
+        return json.dumps({"error": "LLM not configured"})
+
+    url = f"{OPENAI_COMPAT_BASE_URL}/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {OPENAI_COMPAT_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    body = {
+        "model": OPENAI_COMPAT_MODEL,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": 0.1,
+        "stream": False,
     }
 
-    async with httpx.AsyncClient(timeout=30) as client:
-        # Get IAM token
-        try:
-            token_resp = await client.post(iam_url, data=token_payload)
-            token_resp.raise_for_status()
-            iam_token = token_resp.json()["access_token"]
-        except Exception:
-            # Fallback: use mock extraction if watsonx unavailable
-            return json.dumps({"error": "watsonx unavailable", "mock": True})
-
-        # Call Granite
-        wx_url = f"{WATSONX_URL}/ml/v1/text/generation?version=2024-05-31"
-        headers = {
-            "Authorization": f"Bearer {iam_token}",
-            "Content-Type": "application/json",
-        }
-        body = {
-            "model_id": "ibm/granite-13b-instruct-v2",
-            "project_id": WATSONX_PROJECT_ID,
-            "input": prompt,
-            "parameters": {
-                "max_new_tokens": max_tokens,
-                "temperature": 0.1,
-                "stop_sequences": ["```"],
-            },
-        }
-        resp = await client.post(wx_url, headers=headers, json=body)
-        resp.raise_for_status()
-        result = resp.json()
-        return result["results"][0]["generated_text"]
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(url, headers=headers, json=body)
+            resp.raise_for_status()
+            return _parse_openai_response(resp.text)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
 
 
 def build_extraction_prompt(raw_text: str) -> str:
@@ -127,42 +148,86 @@ async def extract_job_from_url(url: str) -> dict:
     Returns:
         JobData terstruktur dengan semua field yang berhasil diekstrak
     """
-    from bs4 import BeautifulSoup
-
     notes = []
     raw_text = ""
 
+    # ── Jobstreet: try their GraphQL/API endpoint first ──────────────────────────
+    if "jobstreet.co.id" in url or "jobstreet.com" in url:
+        import re as _re
+        job_id_match = _re.search(r"-(\d{6,12})(?:[/?#]|$)", url)
+        if job_id_match:
+            job_id = job_id_match.group(1)
+            api_url = f"https://xapi.supercharge-srp.co/job-search/graphql?country=id&isSmartSearch=true"
+            gql_query = {
+                "query": "query GetJobDetail($jobId: String!) { jobDetail(jobId: $jobId, locale: \"id\") { id title companyDetail { name } jobDetail { jobDescription jobRequirement } } }",
+                "variables": {"jobId": job_id}
+            }
+            try:
+                async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+                    gql_resp = await client.post(api_url,
+                        headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"},
+                        json=gql_query)
+                    if gql_resp.status_code == 200:
+                        gql_data = gql_resp.json()
+                        jd = gql_data.get("data", {}).get("jobDetail", {})
+                        if jd and jd.get("title"):
+                            detail = jd.get("jobDetail", {})
+                            raw_text = (
+                                f"Position: {jd.get('title', '')}\n"
+                                f"Company: {jd.get('companyDetail', {}).get('name', '')}\n"
+                                f"Description:\n{detail.get('jobDescription', '')}\n"
+                                f"Requirements:\n{detail.get('jobRequirement', '')}"
+                            )
+                            notes.append(f"Scraped via Jobstreet GraphQL API (job_id={job_id})")
+            except Exception as gql_err:
+                notes.append(f"Jobstreet API failed: {str(gql_err)}")
+
     try:
-        async with httpx.AsyncClient(
-            timeout=15,
-            headers={"User-Agent": "Mozilla/5.0 (compatible; ErgonBot/1.0)"},
-            follow_redirects=True,
-        ) as client:
-            resp = await client.get(url)
-            resp.raise_for_status()
-            html = resp.text
+        if not raw_text:
+            async with httpx.AsyncClient(
+                timeout=20,
+                headers={
+                    "User-Agent": (
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) "
+                        "Chrome/124.0.0.0 Safari/537.36"
+                    ),
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
+                    "Accept-Encoding": "gzip, deflate, br",
+                    "Referer": "https://www.google.com/",
+                    "sec-fetch-dest": "document",
+                    "sec-fetch-mode": "navigate",
+                },
+                follow_redirects=True,
+            ) as client:
+                resp = await client.get(url)
+                resp.raise_for_status()
+                html = resp.text
 
-        soup = BeautifulSoup(html, "lxml")
-        # Remove scripts, styles, nav
-        for tag in soup(["script", "style", "nav", "footer", "header"]):
-            tag.decompose()
+            # LinkedIn redirect ke halaman search/login jika URL tidak langsung ke job
+            if "linkedin.com" in url and "/jobs/view/" not in str(resp.url):
+                notes.append(f"LinkedIn redirect ke {resp.url} — mungkin perlu login.")
 
-        raw_text = soup.get_text(separator="\n", strip=True)
-        raw_text = re.sub(r"\n{3,}", "\n\n", raw_text)
+            from bs4 import BeautifulSoup as _BS
+            soup = _BS(html, "lxml")
+            for tag in soup(["script", "style", "nav", "footer", "header"]):
+                tag.decompose()
+            raw_text = soup.get_text(separator="\n", strip=True)
+            raw_text = re.sub(r"\n{3,}", "\n\n", raw_text)
 
     except Exception as e:
         notes.append(f"Gagal mengambil URL: {str(e)}")
-        return JobData(
-            extraction_notes=notes,
-            raw_text="",
-        ).model_dump()
+        if not raw_text:
+            return JobData(extraction_notes=notes, raw_text="").model_dump()
 
-    # Parse with Granite
+    # Parse with LLM
     try:
         prompt = build_extraction_prompt(raw_text)
         llm_output = await call_granite(prompt)
-        # Try to parse JSON from LLM output
-        json_match = re.search(r"\{.*\}", llm_output, re.DOTALL)
+        # Strip markdown code fences if present (```json ... ``` or ``` ... ```)
+        llm_clean = re.sub(r"```(?:json)?\s*", "", llm_output).strip()
+        json_match = re.search(r"\{.*\}", llm_clean, re.DOTALL)
         if json_match:
             parsed = json.loads(json_match.group())
             parsed["raw_text"] = raw_text[:500]
@@ -270,3 +335,4 @@ async def extract_job_from_image(image_base64: str, filename: str = "job.png") -
 if __name__ == "__main__":
     port = int(os.getenv("JOB_SCRAPER_MCP_PORT", "8001"))
     mcp.run(transport="streamable-http", host="0.0.0.0", port=port, path="/mcp")
+

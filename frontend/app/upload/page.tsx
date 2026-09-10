@@ -65,11 +65,11 @@ function SectionCard({ title, children }: { title: string; children: React.React
   return (
     <div style={{
       background: "#fff", border: "1.5px solid var(--line)",
-      borderRadius: 18, padding: "28px 32px", marginBottom: 20,
+      borderRadius: 16, padding: "26px 30px", marginBottom: 18,
     }}>
       <h3 style={{
-        fontSize: "1.05rem", fontFamily: "'Space Grotesk', sans-serif",
-        color: "var(--ink)", marginBottom: 20,
+        fontSize: "1rem", fontWeight: 600,
+        color: "var(--ink)", marginBottom: 18,
       }}>
         {title}
       </h3>
@@ -145,22 +145,23 @@ export default function UploadPage() {
         {/* Header */}
         <div style={{ marginBottom: 36 }}>
           <div style={{
-            display: "inline-flex", alignItems: "center", gap: 8,
-            background: "var(--accent-soft)", borderRadius: 8,
-            padding: "6px 14px", marginBottom: 16,
+            display: "inline-flex", alignItems: "center", gap: 7,
+            background: "var(--accent-soft)", borderRadius: 20,
+            padding: "5px 14px", marginBottom: 18,
+            border: "1px solid var(--line)",
           }}>
             <div style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--accent)" }} />
-            <span style={{ fontSize: "0.8rem", fontWeight: 600, color: "var(--accent-deep)" }}>
+            <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--accent-deep)", letterSpacing: "0.01em" }}>
               Cek kecocokan CV
             </span>
           </div>
           <h1 style={{
-            fontSize: "2rem", fontFamily: "'Space Grotesk', sans-serif",
-            color: "var(--ink)", marginBottom: 10,
+            fontSize: "1.9rem", fontWeight: 700,
+            color: "var(--ink)", marginBottom: 10, letterSpacing: "-0.02em",
           }}>
             Upload loker, CV, dan portofoliomu
           </h1>
-          <p style={{ color: "var(--ink-soft)", fontSize: "0.98rem", maxWidth: 520 }}>
+          <p style={{ color: "var(--ink-soft)", fontSize: "0.97rem", maxWidth: 520, lineHeight: 1.65 }}>
             Skor kecocokan dan 3 saran teratas selalu gratis — tidak perlu daftar atau bayar dulu.
           </p>
         </div>
@@ -296,14 +297,13 @@ export default function UploadPage() {
             type="submit"
             disabled={loading || !canSubmit}
             style={{
-              width: "100%", padding: "16px 24px",
+              width: "100%", padding: "15px 24px",
               background: loading || !canSubmit ? "var(--muted)" : "var(--accent)",
-              color: "#fff", border: "none", borderRadius: 12,
+              color: "#fff", border: "none", borderRadius: 10,
               fontSize: "1rem", fontWeight: 600,
               cursor: loading || !canSubmit ? "not-allowed" : "pointer",
-              boxShadow: !loading && canSubmit ? "0 10px 24px var(--chip-shadow)" : "none",
               transition: "all 0.15s",
-              fontFamily: "'Space Grotesk', sans-serif",
+              letterSpacing: "-0.01em",
             }}
           >
             {loading ? (

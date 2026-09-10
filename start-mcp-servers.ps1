@@ -17,7 +17,8 @@ Write-Host "  Dependencies installed." -ForegroundColor Green
 Write-Host ""
 
 # ── 2. Set env vars dari env.example ─────────────────────────────────────────
-$envFile = Join-Path $root "backend\env.example"
+$envFile = Join-Path $root "backend\.env"
+if (-not (Test-Path $envFile)) { $envFile = Join-Path $root "backend\env.example" }
 if (Test-Path $envFile) {
     Get-Content $envFile | ForEach-Object {
         if ($_ -match '^\s*([^#][^=]+)=(.*)$') {
@@ -49,19 +50,8 @@ foreach ($s in $servers) {
     $scriptPath = Join-Path $root $s.script
     $logFile    = Join-Path $logDir "$($s.name).log"
 
-    $psi = New-Object System.Diagnostics.ProcessStartInfo
-    $psi.FileName               = "python"
-    $psi.Arguments              = "`"$scriptPath`""
-    $psi.RedirectStandardOutput = $true
-    $psi.RedirectStandardError  = $true
-    $psi.UseShellExecute        = $false
-    $psi.CreateNoWindow         = $true
-
-    # Set port env var
-    $portKey = $s.name.ToUpper().Replace("-", "_") + "_PORT"
-    $psi.EnvironmentVariables[$portKey] = $s.port.ToString()
-
-    $proc = [System.Diagnostics.Process]::Start($psi)
+    $proc = Start-Process -FilePath "python" -ArgumentList "`"$scriptPath`"" `
+                -WindowStyle Hidden -PassThru
 
     Write-Host "  Started $($s.name)  ->  http://localhost:$($s.port)/mcp  (PID $($proc.Id))" -ForegroundColor Green
 }

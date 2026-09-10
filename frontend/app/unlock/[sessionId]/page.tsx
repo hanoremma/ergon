@@ -185,79 +185,79 @@ export default function UnlockPage() {
 function ConfirmStep({ onPay }: { onPay: () => void }) {
   return (
     <div>
-      <div style={{ marginBottom: 32 }}>
+      <div style={{ marginBottom: 28 }}>
         <div style={{
-          display: "inline-flex", alignItems: "center", gap: 8,
-          background: "var(--accent-soft)", borderRadius: 8,
-          padding: "6px 14px", marginBottom: 16,
+          display: "inline-flex", alignItems: "center", gap: 7,
+          background: "var(--accent-soft)", borderRadius: 20,
+          padding: "5px 14px", marginBottom: 16,
+          border: "1px solid var(--line)",
         }}>
-          <span style={{ fontSize: "0.8rem", fontWeight: 600, color: "var(--accent-deep)" }}>
+          <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--accent-deep)", letterSpacing: "0.01em" }}>
             Buka versi lengkap
           </span>
         </div>
-        <h1 style={{ fontSize: "1.8rem", fontFamily: "'Space Grotesk', sans-serif", color: "var(--ink)", marginBottom: 10 }}>
-          Semua saran + CV siap download
+        <h1 style={{ fontSize: "1.75rem", fontWeight: 800, color: "var(--ink)", marginBottom: 10, letterSpacing: "-0.025em" }}>
+          Semua saran + laporan lengkap siap diunduh
         </h1>
-        <p style={{ color: "var(--ink-soft)" }}>
+        <p style={{ color: "var(--ink-soft)", lineHeight: 1.65 }}>
           Satu kali bayar untuk loker ini. Tidak perlu berlangganan.
         </p>
       </div>
 
       {/* What you get */}
       <div style={{
-        background: "var(--bg-hero)", borderRadius: 18, padding: "28px",
-        marginBottom: 24,
+        background: "#fff", border: "1.5px solid var(--line)",
+        borderRadius: 16, padding: "24px 26px",
+        marginBottom: 18,
       }}>
-        <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, color: "var(--ink)", marginBottom: 16, fontSize: "0.95rem" }}>
+        <div style={{ fontWeight: 700, color: "var(--ink)", marginBottom: 16, fontSize: "0.9rem", letterSpacing: "-0.01em" }}>
           Yang kamu dapatkan:
         </div>
         {[
           "Semua saran perbaikan CV dengan detail lengkap",
           "Estimasi dampak per saran (+X% ke skor kecocokan)",
-          "CV yang sudah direvisi, siap diunduh sebagai PDF",
-          "CV dalam format DOCX untuk kustomisasi lanjut",
+          "Laporan lengkap hasil analisis, siap diunduh sebagai PDF",
           "Konteks perusahaan & tips spesifik untuk loker ini",
         ].map((item, i) => (
           <div key={i} style={{ display: "flex", gap: 10, marginBottom: 10, alignItems: "flex-start" }}>
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0, marginTop: 2 }}>
-              <circle cx="8" cy="8" r="6.4" stroke="var(--success)" strokeWidth="1.5"/>
-              <path d="M5.3 8.2L7.1 10L10.6 6" stroke="var(--success)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              <circle cx="8" cy="8" r="6.4" stroke="#15803D" strokeWidth="1.5"/>
+              <path d="M5.3 8.2L7.1 10L10.6 6" stroke="#15803D" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
-            <span style={{ fontSize: "0.9rem", color: "var(--ink-soft)" }}>{item}</span>
+            <span style={{ fontSize: "0.9rem", color: "var(--ink-soft)", lineHeight: 1.55 }}>{item}</span>
           </div>
         ))}
       </div>
 
       {/* Price & CTA */}
       <div style={{
-        background: "var(--ink)", borderRadius: 18, padding: "28px",
+        background: "var(--ink)", borderRadius: 16, padding: "26px 26px",
       }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 6 }}>
           <span style={{
-            fontSize: "2rem", fontWeight: 700,
-            fontFamily: "'Space Grotesk', sans-serif", color: "#fff",
+            fontSize: "1.9rem", fontWeight: 800, letterSpacing: "-0.03em",
+            color: "#fff",
           }}>
             Rp 25.000
           </span>
-          <span style={{ fontSize: "0.84rem", color: "var(--muted)" }}>sekali bayar per loker</span>
+          <span style={{ fontSize: "0.82rem", color: "var(--muted)" }}>sekali bayar per loker</span>
         </div>
-        <p style={{ fontSize: "0.82rem", color: "#DCD9F5", marginBottom: 20, lineHeight: 1.5 }}>
+        <p style={{ fontSize: "0.82rem", color: "#B8D4EE", marginBottom: 20, lineHeight: 1.6 }}>
           Harga berlaku untuk analisis loker ini saja. Setelah bayar, akses tidak terbatas untuk sesi ini.
         </p>
         <button
           onClick={onPay}
           style={{
-            width: "100%", padding: "16px",
+            width: "100%", padding: "15px",
             background: "var(--accent)", color: "#fff",
-            border: "none", borderRadius: 12,
+            border: "none", borderRadius: 10,
             fontWeight: 600, fontSize: "1rem",
-            cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif",
-            boxShadow: "0 8px 20px rgba(91,79,229,0.3)",
+            cursor: "pointer", letterSpacing: "-0.01em",
           }}
         >
           Bayar & Buka Sekarang
         </button>
-        <p style={{ fontSize: "0.78rem", color: "var(--muted)", marginTop: 12, textAlign: "center" }}>
+        <p style={{ fontSize: "0.76rem", color: "var(--muted)", marginTop: 12, textAlign: "center" }}>
           Pembayaran aman via Midtrans · Transfer bank, QRIS, kartu kredit
         </p>
       </div>
@@ -269,17 +269,17 @@ function PaymentStep() {
   return (
     <div style={{ textAlign: "center", padding: "40px 0" }}>
       <div style={{
-        width: 60, height: 60, borderRadius: "50%",
-        border: "3px solid var(--accent-soft)",
+        width: 56, height: 56, borderRadius: "50%",
+        border: "3px solid var(--line)",
         borderTop: "3px solid var(--accent)",
-        animation: "spin 1s linear infinite",
+        animation: "spin 0.9s linear infinite",
         margin: "0 auto 24px",
       }} />
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-      <h2 style={{ fontFamily: "'Space Grotesk', sans-serif", color: "var(--ink)", fontSize: "1.3rem" }}>
+      <h2 style={{ fontWeight: 700, color: "var(--ink)", fontSize: "1.25rem", letterSpacing: "-0.01em" }}>
         Memuat halaman pembayaran...
       </h2>
-      <p style={{ color: "var(--ink-soft)", marginTop: 8 }}>
+      <p style={{ color: "var(--ink-soft)", marginTop: 8, lineHeight: 1.65 }}>
         Sebentar lagi halaman pembayaran Midtrans akan muncul.
       </p>
     </div>
@@ -290,17 +290,17 @@ function VerifyingStep() {
   return (
     <div style={{ textAlign: "center", padding: "40px 0" }}>
       <div style={{
-        width: 60, height: 60, borderRadius: "50%",
-        border: "3px solid var(--accent-soft)",
+        width: 56, height: 56, borderRadius: "50%",
+        border: "3px solid var(--line)",
         borderTop: "3px solid var(--accent)",
-        animation: "spin 1s linear infinite",
+        animation: "spin 0.9s linear infinite",
         margin: "0 auto 24px",
       }} />
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-      <h2 style={{ fontFamily: "'Space Grotesk', sans-serif", color: "var(--ink)", fontSize: "1.3rem" }}>
+      <h2 style={{ fontWeight: 700, color: "var(--ink)", fontSize: "1.25rem", letterSpacing: "-0.01em" }}>
         Memverifikasi pembayaran...
       </h2>
-      <p style={{ color: "var(--ink-soft)", marginTop: 8 }}>
+      <p style={{ color: "var(--ink-soft)", marginTop: 8, lineHeight: 1.65 }}>
         Sedang mengkonfirmasi pembayaranmu dengan Midtrans.
       </p>
     </div>
@@ -311,33 +311,32 @@ function SuccessStep({ sessionId, onView }: { sessionId: string; onView: () => v
   return (
     <div style={{ textAlign: "center", padding: "40px 0" }}>
       <div style={{
-        width: 72, height: 72, borderRadius: "50%",
+        width: 68, height: 68, borderRadius: "50%",
         background: "#ECFDF5", border: "2px solid #A7F3D0",
         display: "flex", alignItems: "center", justifyContent: "center",
         margin: "0 auto 24px",
       }}>
-        <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
-          <path d="M5 12L10 17L20 7" stroke="var(--success)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none">
+          <path d="M5 12L10 17L20 7" stroke="#15803D" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
         </svg>
       </div>
-      <h2 style={{ fontFamily: "'Space Grotesk', sans-serif", color: "var(--ink)", fontSize: "1.6rem", marginBottom: 8 }}>
+      <h2 style={{ fontWeight: 800, color: "var(--ink)", fontSize: "1.5rem", marginBottom: 8, letterSpacing: "-0.02em" }}>
         Pembayaran berhasil!
       </h2>
-      <p style={{ color: "var(--ink-soft)", marginBottom: 32 }}>
+      <p style={{ color: "var(--ink-soft)", marginBottom: 32, lineHeight: 1.65 }}>
         Semua saran dan CV hasil revisi sudah bisa kamu akses.
       </p>
       <button
         onClick={onView}
         style={{
-          padding: "16px 32px",
+          padding: "14px 32px",
           background: "var(--accent)", color: "#fff",
-          border: "none", borderRadius: 12,
-          fontWeight: 600, fontSize: "1rem",
-          cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif",
-          boxShadow: "0 8px 20px var(--chip-shadow)",
+          border: "none", borderRadius: 10,
+          fontWeight: 600, fontSize: "0.96rem",
+          cursor: "pointer", letterSpacing: "-0.01em",
         }}
       >
-        Lihat semua saran & unduh CV
+        Lihat semua saran & unduh laporan
       </button>
     </div>
   );
@@ -347,20 +346,20 @@ function ErrorStep({ error, onRetry }: { error: string; onRetry: () => void }) {
   return (
     <div style={{ textAlign: "center", padding: "40px 0" }}>
       <div style={{
-        width: 72, height: 72, borderRadius: "50%",
+        width: 68, height: 68, borderRadius: "50%",
         background: "#FEF2F2", border: "2px solid #FECACA",
         display: "flex", alignItems: "center", justifyContent: "center",
         margin: "0 auto 24px",
       }}>
-        <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none">
           <path d="M12 8V12M12 16H12.01" stroke="#DC2626" strokeWidth="2.5" strokeLinecap="round"/>
           <circle cx="12" cy="12" r="9" stroke="#DC2626" strokeWidth="2"/>
         </svg>
       </div>
-      <h2 style={{ fontFamily: "'Space Grotesk', sans-serif", color: "var(--ink)", fontSize: "1.4rem", marginBottom: 8 }}>
+      <h2 style={{ fontWeight: 700, color: "var(--ink)", fontSize: "1.3rem", marginBottom: 8, letterSpacing: "-0.01em" }}>
         Terjadi kendala
       </h2>
-      <p style={{ color: "var(--ink-soft)", marginBottom: 32, maxWidth: 380, margin: "0 auto 32px" }}>
+      <p style={{ color: "var(--ink-soft)", marginBottom: 32, maxWidth: 380, margin: "0 auto 32px", lineHeight: 1.65 }}>
         {error}
       </p>
       <button
@@ -369,8 +368,8 @@ function ErrorStep({ error, onRetry }: { error: string; onRetry: () => void }) {
           padding: "12px 28px",
           background: "var(--accent)", color: "#fff",
           border: "none", borderRadius: 10,
-          fontWeight: 600, fontSize: "0.95rem",
-          cursor: "pointer",
+          fontWeight: 600, fontSize: "0.92rem",
+          cursor: "pointer", letterSpacing: "-0.01em",
         }}
       >
         Coba lagi

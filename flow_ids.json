@@ -1,8 +1,8 @@
 {
-  "job_extraction": "d5c0538f-0069-45ac-af85-2dfd1c9dbd40",
-  "company_intel": "84185523-23f4-4f39-a829-1cb443653478",
-  "cv_portfolio_parsing": "f3cebfa7-dc34-47a2-b691-9187f43663a7",
-  "scoring_and_suggestions": "2c3ab612-562e-476a-8c56-dc29c724678d",
-  "cv_enhancement": "e8c8de4b-1348-4f8f-a22c-1aa25622f44c",
-  "interview_practice": "99256bdb-296c-4e73-8648-a04c1a3f4e34"
+  "job_extraction": "d5c0538f006945acaf852dfd1c9dbd40",
+  "company_intel": "8418552323f44f39a8291cb443653478",
+  "cv_portfolio_parsing": "f3cebfa7dc3447a2b6919187f43663a7",
+  "scoring_and_suggestions": "2c3ab612562e476a8c56dc29c724678d",
+  "cv_enhancement": "e8c8de4b13484f8fa22c1aa25622f44c",
+  "interview_practice": "99256bdb296c4e738648a04c1a3f4e34"
 }

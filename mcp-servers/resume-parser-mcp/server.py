@@ -13,42 +13,78 @@ import httpx
 from fastmcp import FastMCP
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)
 
 mcp = FastMCP(
     name="resume-parser-mcp",
     instructions="MCP server untuk parsing CV/resume menjadi data terstruktur: riwayat kerja, pendidikan, skill, achievement.",
 )
 
-WATSONX_API_KEY = os.getenv("WATSONX_API_KEY", "")
-WATSONX_URL = os.getenv("WATSONX_URL", "https://us-south.ml.cloud.ibm.com")
-WATSONX_PROJECT_ID = os.getenv("WATSONX_PROJECT_ID", "")
+# Use the same OpenAI-compatible endpoint as job-scraper and scoring-engine
+OPENAI_COMPAT_BASE_URL = os.getenv("OPENAI_COMPATIBLE_BASE_URL", "").rstrip("/")
+OPENAI_COMPAT_API_KEY  = os.getenv("OPENAI_COMPATIBLE_API_KEY", "")
+# ergon-resume-parser maps to a heavy thinking model — use a fast model for CV parsing
+OPENAI_COMPAT_MODEL    = os.getenv("OPENAI_COMPAT_CV_MODEL", "gemini/gemini-3.5-flash-lite")
+
+
+def _parse_openai_response(raw: str) -> str:
+    """Parse both non-streaming JSON and SSE streaming responses, including thinking models."""
+    raw = raw.strip()
+    if not raw:
+        return ""
+    # Non-streaming: starts with { (possibly after leading whitespace)
+    stripped = raw.lstrip()
+    if stripped.startswith("{"):
+        try:
+            import json as _json
+            decoder = _json.JSONDecoder()
+            data, _ = decoder.raw_decode(stripped)
+            msg = data["choices"][0]["message"]
+            # Some thinking models put answer in content; reasoning is separate
+            return msg.get("content", "") or ""
+        except Exception:
+            pass
+    # SSE streaming: collect all delta content chunks
+    content = ""
+    for line in raw.splitlines():
+        if line.startswith("data:"):
+            chunk = line[5:].strip()
+            if chunk == "[DONE]":
+                break
+            try:
+                import json as _json
+                obj = _json.loads(chunk)
+                delta = obj.get("choices", [{}])[0].get("delta", {})
+                content += delta.get("content", "") or ""
+            except Exception:
+                pass
+    return content
 
 
 async def call_granite(prompt: str) -> str:
-    iam_url = "https://iam.cloud.ibm.com/identity/token"
-    async with httpx.AsyncClient(timeout=45) as client:
-        try:
-            token_resp = await client.post(
-                iam_url,
-                data={"grant_type": "urn:ibm:params:oauth:grant-type:apikey", "apikey": WATSONX_API_KEY},
-            )
-            token_resp.raise_for_status()
-            iam_token = token_resp.json()["access_token"]
+    """Call LLM via OpenAI-compatible endpoint for CV extraction."""
+    if not OPENAI_COMPAT_BASE_URL or not OPENAI_COMPAT_API_KEY:
+        return json.dumps({"error": "LLM not configured"})
+    try:
+        async with httpx.AsyncClient(timeout=90) as client:
             resp = await client.post(
-                f"{WATSONX_URL}/ml/v1/text/generation?version=2024-05-31",
-                headers={"Authorization": f"Bearer {iam_token}", "Content-Type": "application/json"},
+                f"{OPENAI_COMPAT_BASE_URL}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {OPENAI_COMPAT_API_KEY}",
+                    "Content-Type": "application/json",
+                },
                 json={
-                    "model_id": "ibm/granite-13b-instruct-v2",
-                    "project_id": WATSONX_PROJECT_ID,
-                    "input": prompt,
-                    "parameters": {"max_new_tokens": 1500, "temperature": 0.1},
+                    "model": OPENAI_COMPAT_MODEL,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": 3000,
+                    "temperature": 0.1,
+                    "stream": False,
                 },
             )
             resp.raise_for_status()
-            return resp.json()["results"][0]["generated_text"]
-        except Exception as e:
-            return json.dumps({"error": str(e)})
+            return _parse_openai_response(resp.text)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
 
 
 def build_cv_extraction_prompt(raw_text: str) -> str:
@@ -110,19 +146,55 @@ JSON:
 
 
 async def extract_cv_data(raw_text: str) -> dict:
-    """Parse CV text using Granite LLM."""
+    """Parse CV text using LLM."""
     prompt = build_cv_extraction_prompt(raw_text)
     llm_output = await call_granite(prompt)
 
-    # Try JSON parse
-    try:
-        json_match = re.search(r"\{.*\}", llm_output, re.DOTALL)
-        if json_match:
-            return json.loads(json_match.group())
-    except Exception:
-        pass
+    if llm_output:
+        # If LLM returned an error dict, don't use it
+        try:
+            _err = json.loads(llm_output)
+            if isinstance(_err, dict) and "error" in _err and not any(
+                k in _err for k in ("personal_info", "skills", "work_experience", "education")
+            ):
+                llm_output = ""  # treat as failed
+        except Exception:
+            pass
 
-    # Fallback: basic regex extraction
+    if llm_output:
+        # Strip markdown fences and thinking tags if present
+        cleaned = re.sub(r"<think>.*?</think>", "", llm_output, flags=re.DOTALL).strip()
+        cleaned = re.sub(r"```(?:json)?\s*", "", cleaned).strip()
+
+        # Try direct parse first (skip if it's just an error dict)
+        try:
+            parsed = json.loads(cleaned)
+            if isinstance(parsed, dict) and any(
+                k in parsed for k in ("personal_info", "skills", "work_experience", "education")
+            ):
+                return parsed
+        except Exception:
+            pass
+
+        # Find the last (outermost) JSON object — use decoder to find first valid one
+        try:
+            decoder = json.JSONDecoder()
+            # Scan forward until we find a valid JSON object
+            idx = cleaned.find("{")
+            while idx != -1:
+                try:
+                    obj, _ = decoder.raw_decode(cleaned[idx:])
+                    if isinstance(obj, dict) and (
+                        obj.get("personal_info") or obj.get("skills") or obj.get("work_experience")
+                    ):
+                        return obj
+                except Exception:
+                    pass
+                idx = cleaned.find("{", idx + 1)
+        except Exception:
+            pass
+
+    # Fallback
     return {
         "personal_info": {},
         "summary": "",
@@ -242,3 +314,4 @@ async def parse_cv_from_text(raw_text: str) -> dict:
 if __name__ == "__main__":
     port = int(os.getenv("RESUME_PARSER_MCP_PORT", "8003"))
     mcp.run(transport="streamable-http", host="0.0.0.0", port=port, path="/mcp")
+

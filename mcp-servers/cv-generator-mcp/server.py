@@ -14,7 +14,7 @@ from io import BytesIO
 from fastmcp import FastMCP
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)
 
 mcp = FastMCP(
     name="cv-generator-mcp",
