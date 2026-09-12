@@ -65,9 +65,10 @@ class PaymentInitRequest(BaseModel):
 
 # ─── Langflow Client ────────────────────────────────────────────────────────────
 
-MCP_SCORING_URL     = os.getenv("MCP_SCORING_URL",     "http://localhost:8005/mcp")
-MCP_JOB_SCRAPER_URL = os.getenv("MCP_JOB_SCRAPER_URL", "http://localhost:8001/mcp")
-MCP_RESUME_PARSER_URL = os.getenv("MCP_RESUME_PARSER_URL", "http://localhost:8003/mcp")
+MCP_SCORING_URL          = os.getenv("MCP_SCORING_URL",          "http://localhost:8005/mcp")
+MCP_JOB_SCRAPER_URL      = os.getenv("MCP_JOB_SCRAPER_URL",      "http://localhost:8001/mcp")
+MCP_RESUME_PARSER_URL    = os.getenv("MCP_RESUME_PARSER_URL",    "http://localhost:8003/mcp")
+MCP_PORTFOLIO_URL        = os.getenv("MCP_PORTFOLIO_URL",        "http://localhost:8004/mcp")
 
 # Cache one session ID per MCP endpoint
 _mcp_sessions: dict = {}
@@ -120,11 +121,14 @@ async def call_mcp_tool(tool_name: str, arguments: dict, mcp_url: str = None) ->
             "Content-Type": "application/json",
             "mcp-session-id": session,
         }
-        # job-scraper needs ~20s (scraping+LLM), resume-parser needs ~45s (LLM), scoring <12s
+        # job-scraper needs ~20s (scraping+LLM), resume-parser needs ~45s (LLM),
+        # portfolio-analyzer needs ~30s (GitHub API + LLM), scoring <12s
         if target == MCP_JOB_SCRAPER_URL:
             read_timeout = 60.0
         elif target == MCP_RESUME_PARSER_URL:
             read_timeout = 105.0
+        elif target == MCP_PORTFOLIO_URL:
+            read_timeout = 45.0
         else:
             read_timeout = 12.0
         timeout = httpx.Timeout(connect=5.0, read=read_timeout, write=5.0, pool=5.0)
@@ -280,11 +284,12 @@ async def analyze(
     # Read uploaded files — keep bytes for MCP processing
     job_content = None
     cv_content = None
-    portfolio_content = None
     job_file_bytes: Optional[bytes] = None
     job_file_name: Optional[str] = None
     cv_file_bytes: Optional[bytes] = None
     cv_file_name: Optional[str] = None
+    portfolio_file_bytes: Optional[bytes] = None
+    portfolio_file_name: Optional[str] = None
 
     if job_file:
         job_file_bytes = await job_file.read()
@@ -295,8 +300,8 @@ async def analyze(
         cv_file_name = cv_file.filename
         cv_content = f"[FILE:{cv_file.filename}]"
     if portfolio_file:
-        portfolio_content = await portfolio_file.read()
-        portfolio_content = f"[FILE:{portfolio_file.filename}]"
+        portfolio_file_bytes = await portfolio_file.read()
+        portfolio_file_name = portfolio_file.filename
 
     # Initialize session
     analysis_store[session_id] = {
@@ -322,7 +327,8 @@ async def analyze(
         cv_file_bytes=cv_file_bytes,
         cv_file_name=cv_file_name,
         portfolio_url=portfolio_url,
-        portfolio_content=portfolio_content,
+        portfolio_file_bytes=portfolio_file_bytes,
+        portfolio_file_name=portfolio_file_name,
     )
 
     return {"session_id": session_id, "status": "processing"}
@@ -339,7 +345,8 @@ async def run_analysis_pipeline(
     cv_file_bytes: Optional[bytes] = None,
     cv_file_name: Optional[str] = None,
     portfolio_url: Optional[str] = None,
-    portfolio_content: Optional[str] = None,
+    portfolio_file_bytes: Optional[bytes] = None,
+    portfolio_file_name: Optional[str] = None,
 ):
     """Run the full Langflow pipeline. Always completes — never sets status=error."""
     store = analysis_store[session_id]
@@ -347,7 +354,8 @@ async def run_analysis_pipeline(
     try:
         job_input = job_url or job_content or ""
         cv_input = cv_url or cv_content or ""
-        portfolio_input = portfolio_url or portfolio_content or ""
+        import logging as _logging
+        _log = _logging.getLogger("ergon.pipeline")
 
         store["progress"]["job_extraction"] = "running"
         store["progress"]["company_intel"] = "running"
@@ -406,16 +414,55 @@ async def run_analysis_pipeline(
                 )
             return None
 
-        # Run job extraction, CV parsing, and company intel in parallel
-        job_struct_direct, cv_struct_direct, company_result = await asyncio.gather(
+        async def _analyze_portfolio():
+            # ── Portfolio dari file (PDF / gambar) ──────────────────────────────
+            if portfolio_file_bytes and portfolio_file_name:
+                _log.info(f"[portfolio] analyzing file: {portfolio_file_name!r}")
+                result = await call_mcp_tool(
+                    "analyze_portfolio_file",
+                    {
+                        "file_base64": _b64.b64encode(portfolio_file_bytes).decode(),
+                        "filename": portfolio_file_name,
+                        "job_requirements": [],
+                    },
+                    mcp_url=MCP_PORTFOLIO_URL,
+                )
+                _log.info(f"[portfolio] file result available={result.get('available') if result else None}")
+                return result
+
+            # ── Portfolio dari URL ──────────────────────────────────────────────
+            if not portfolio_url:
+                _log.info("[portfolio] no portfolio input, skipping")
+                return None
+            _log.info(f"[portfolio] analyzing url: {portfolio_url!r}")
+            if "github.com" in portfolio_url:
+                result = await call_mcp_tool(
+                    "analyze_github_portfolio",
+                    {"github_url": portfolio_url, "job_requirements": []},
+                    mcp_url=MCP_PORTFOLIO_URL,
+                )
+            else:
+                result = await call_mcp_tool(
+                    "analyze_portfolio_url",
+                    {"portfolio_url": portfolio_url, "job_requirements": []},
+                    mcp_url=MCP_PORTFOLIO_URL,
+                )
+            _log.info(f"[portfolio] url result available={result.get('available') if result else None} score={result.get('relevance_score') if result else None}")
+            return result
+
+        # Run job extraction, CV parsing, company intel, dan portfolio in parallel
+        job_struct_direct, cv_struct_direct, company_result, portfolio_result = await asyncio.gather(
             _extract_job(),
             _extract_cv(),
             run_langflow("company_intel", {"job_input": job_input}),
+            _analyze_portfolio(),
             return_exceptions=True,
         )
         job_struct_direct  = job_struct_direct  if not isinstance(job_struct_direct, Exception)  else None
         cv_struct_direct   = cv_struct_direct   if not isinstance(cv_struct_direct, Exception)   else None
         company_result     = company_result     if not isinstance(company_result, Exception)      else None
+        portfolio_result   = portfolio_result   if not isinstance(portfolio_result, Exception)    else None
+        _log.info(f"[pipeline] portfolio_result={portfolio_result is not None}, available={portfolio_result.get('available') if portfolio_result else None}")
 
         # ── Set store data ────────────────────────────────────────────────────────
         # job_data: pakai MCP result jika berhasil, fallback ke Langflow job_extraction
@@ -464,11 +511,52 @@ async def run_analysis_pipeline(
             if cv_input:
                 cv_struct["_raw_input"] = cv_input
 
+        # ── Build portfolio_data untuk scoring ───────────────────────────────────
+        portfolio_data = portfolio_result if (portfolio_result and portfolio_result.get("available")) else {}
+
+        # Jika portfolio tersedia, re-analyze dengan job requirements untuk relevansi lebih akurat
+        if portfolio_data.get("available"):
+            job_reqs = (
+                job_struct.get("requirements_hard_skill", []) or
+                job_struct.get("requirements", []) or []
+            )
+            if job_reqs:
+                try:
+                    if portfolio_file_bytes and portfolio_file_name:
+                        # Re-analyze file dengan job requirements
+                        portfolio_enriched = await call_mcp_tool(
+                            "analyze_portfolio_file",
+                            {
+                                "file_base64": _b64.b64encode(portfolio_file_bytes).decode(),
+                                "filename": portfolio_file_name,
+                                "job_requirements": job_reqs[:10],
+                            },
+                            mcp_url=MCP_PORTFOLIO_URL,
+                        )
+                    elif portfolio_url and "github.com" in portfolio_url:
+                        portfolio_enriched = await call_mcp_tool(
+                            "analyze_github_portfolio",
+                            {"github_url": portfolio_url, "job_requirements": job_reqs[:10]},
+                            mcp_url=MCP_PORTFOLIO_URL,
+                        )
+                    elif portfolio_url:
+                        portfolio_enriched = await call_mcp_tool(
+                            "analyze_portfolio_url",
+                            {"portfolio_url": portfolio_url, "job_requirements": job_reqs[:10]},
+                            mcp_url=MCP_PORTFOLIO_URL,
+                        )
+                    else:
+                        portfolio_enriched = None
+                    if portfolio_enriched and portfolio_enriched.get("available"):
+                        portfolio_data = portfolio_enriched
+                except Exception:
+                    pass  # tetap gunakan portfolio_result yang sudah ada
+
         # ── Scoring via MCP langsung (bypass Langflow Agent) ─────────────────────
         mcp_scoring = await call_mcp_tool("calculate_match_score", {
             "job_data": job_struct,
             "cv_data": cv_struct,
-            "portfolio_data": {},
+            "portfolio_data": portfolio_data,
             "company_data": store.get("company_data") or {},
         })
 
@@ -479,7 +567,7 @@ async def run_analysis_pipeline(
                 "job_data": job_struct,
                 "cv_data": cv_struct,
                 "scoring_result": mcp_scoring,
-                "portfolio_data": {},
+                "portfolio_data": portfolio_data,
             })
             if mcp_suggestions and mcp_suggestions.get("suggestions"):
                 store["suggestions"] = _normalize_mcp_suggestions(mcp_suggestions["suggestions"])
