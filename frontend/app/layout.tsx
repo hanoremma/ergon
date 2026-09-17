@@ -4,6 +4,11 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Ergon — AI CV-Fit Scorer & Enhancer",
   description: "Tahu dulu seberapa cocok CV-mu, sebelum kirim lamaran. Ergon membaca loker dan CV-mu, lalu kasih skor kecocokan lengkap dengan alasannya.",
+  icons: {
+    icon: "/logo-ergon.png",
+    shortcut: "/logo-ergon.png",
+    apple: "/logo-ergon.png",
+  },
 };
 
 export default function RootLayout({

@@ -372,9 +372,11 @@ export default function ResultPage() {
 
   if (status === "loading" || status === "processing") {
     return (
-      <div style={{ background: "var(--bg-page)", minHeight: "100vh" }}>
+      <div style={{ background: "var(--bg-page)", minHeight: "100vh", display: "flex", flexDirection: "column" }}>
         <Nav />
-        <LoadingDashboard progress={progress} />
+        <div style={{ flex: 1 }}>
+          <LoadingDashboard progress={progress} />
+        </div>
         <Footer />
       </div>
     );
@@ -382,9 +384,9 @@ export default function ResultPage() {
 
   if (status === "error") {
     return (
-      <div style={{ background: "var(--bg-page)", minHeight: "100vh" }}>
+      <div style={{ background: "var(--bg-page)", minHeight: "100vh", display: "flex", flexDirection: "column" }}>
         <Nav />
-        <div style={{ maxWidth: 480, margin: "80px auto", padding: "0 32px", textAlign: "center" }}>
+        <div style={{ flex: 1, maxWidth: 480, margin: "80px auto", padding: "0 32px", textAlign: "center" }}>
           <div style={{
             width: 64, height: 64, borderRadius: "50%",
             background: "#FEF2F2", border: "2px solid #FECACA",

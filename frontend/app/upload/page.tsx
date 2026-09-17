@@ -31,10 +31,10 @@ function DropZone({
         if (f) onFile(f);
       }}
       style={{
-        border: `1.5px dashed ${drag ? "var(--accent)" : "var(--line)"}`,
+        border: `1.5px dashed ${drag ? "#3b82f6" : "#bfdbfe"}`,
         borderRadius: 14, padding: "24px 20px",
         textAlign: "center", cursor: "pointer",
-        background: drag ? "var(--accent-soft)" : "#fff",
+        background: drag ? "#eff6ff" : "#f8fbff",
         transition: "all 0.15s",
       }}
     >
@@ -42,17 +42,35 @@ function DropZone({
         onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f); }} />
       {file ? (
         <div>
-          <div style={{ fontSize: "1.4rem", marginBottom: 4 }}>📄</div>
-          <div style={{ fontSize: "0.88rem", fontWeight: 600, color: "var(--ink)" }}>{file.name}</div>
-          <div style={{ fontSize: "0.78rem", color: "var(--muted)", marginTop: 2 }}>
+          <div style={{
+            width: 36, height: 36, borderRadius: 10, margin: "0 auto 10px",
+            background: "linear-gradient(135deg, #1d4ed8, #3b82f6)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+              <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z" stroke="white" strokeWidth="1.8" strokeLinejoin="round"/>
+              <path d="M14 2v6h6" stroke="white" strokeWidth="1.8" strokeLinejoin="round"/>
+            </svg>
+          </div>
+          <div style={{ fontSize: "0.88rem", fontWeight: 600, color: "#0F2A4A" }}>{file.name}</div>
+          <div style={{ fontSize: "0.78rem", color: "#94a3b8", marginTop: 2 }}>
             {(file.size / 1024).toFixed(0)} KB — klik untuk ganti
           </div>
         </div>
       ) : (
         <div>
-          <div style={{ fontSize: "1.4rem", marginBottom: 6 }}>↑</div>
-          <div style={{ fontSize: "0.88rem", color: "var(--ink-soft)" }}>{label}</div>
-          <div style={{ fontSize: "0.76rem", color: "var(--muted)", marginTop: 4 }}>
+          <div style={{
+            width: 36, height: 36, borderRadius: 10, margin: "0 auto 10px",
+            background: "#e0eefb",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+              <path d="M12 15V4M12 4L9 7M12 4L15 7" stroke="#1d4ed8" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2" stroke="#1d4ed8" strokeWidth="1.8" strokeLinecap="round"/>
+            </svg>
+          </div>
+          <div style={{ fontSize: "0.88rem", color: "#3A5878", fontWeight: 500 }}>{label}</div>
+          <div style={{ fontSize: "0.76rem", color: "#94a3b8", marginTop: 4 }}>
             Klik atau drag & drop
           </div>
         </div>
@@ -61,18 +79,26 @@ function DropZone({
   );
 }
 
-function SectionCard({ title, children }: { title: string; children: React.ReactNode }) {
+function SectionCard({ title, step, children }: { title: string; step: string; children: React.ReactNode }) {
   return (
     <div style={{
-      background: "#fff", border: "1.5px solid var(--line)",
-      borderRadius: 16, padding: "26px 30px", marginBottom: 18,
+      background: "#fff", border: "1.5px solid #e0eefb",
+      borderRadius: 20, padding: "28px 30px", marginBottom: 16,
+      boxShadow: "0 2px 12px rgba(15,42,74,0.05)",
     }}>
-      <h3 style={{
-        fontSize: "1rem", fontWeight: 600,
-        color: "var(--ink)", marginBottom: 18,
-      }}>
-        {title}
-      </h3>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+        <div style={{
+          width: 28, height: 28, borderRadius: 8, flexShrink: 0,
+          background: "linear-gradient(135deg, #1d4ed8, #3b82f6)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          fontSize: "0.72rem", fontWeight: 700, color: "#fff",
+        }}>
+          {step}
+        </div>
+        <h3 style={{ fontSize: "0.97rem", fontWeight: 700, color: "#0F2A4A" }}>
+          {title}
+        </h3>
+      </div>
       {children}
     </div>
   );
@@ -121,58 +147,73 @@ export default function UploadPage() {
     }
   }
 
-  const tabStyle = (active: boolean) => ({
+  const tabStyle = (active: boolean): React.CSSProperties => ({
     padding: "8px 18px", borderRadius: 8, fontSize: "0.88rem",
     fontWeight: 500, cursor: "pointer", border: "none",
-    background: active ? "var(--accent)" : "transparent",
-    color: active ? "#fff" : "var(--ink-soft)",
+    background: active ? "linear-gradient(135deg, #1d4ed8, #3b82f6)" : "transparent",
+    color: active ? "#fff" : "#3A5878",
     transition: "all 0.15s",
+    boxShadow: active ? "0 2px 8px rgba(59,130,246,0.3)" : "none",
   });
 
-  const inputStyle = {
+  const inputStyle: React.CSSProperties = {
     width: "100%", padding: "12px 14px",
-    border: "1.5px solid var(--line)", borderRadius: 10,
+    border: "1.5px solid #bfdbfe", borderRadius: 10,
     fontSize: "0.92rem", fontFamily: "'Inter', sans-serif",
-    color: "var(--ink)", background: "#fff",
+    color: "#0F2A4A", background: "#fff",
     outline: "none",
   };
 
   return (
-    <div style={{ background: "var(--bg-page)", minHeight: "100vh" }}>
+    <div style={{ background: "#fff", minHeight: "100vh", overflowX: "hidden" }}>
       <Nav />
 
-      <div style={{ maxWidth: 720, margin: "0 auto", padding: "48px 32px 80px" }}>
-        {/* Header */}
-        <div style={{ marginBottom: 36 }}>
+      {/* Page header with gradient bg */}
+      <div style={{ position: "relative", overflow: "hidden", background: "#fff", paddingBottom: 0 }}>
+        <div style={{
+          position: "absolute", top: -80, left: -120,
+          width: 440, height: 440, borderRadius: "50%",
+          background: "radial-gradient(circle, #dbeafe 0%, #eff6ff 50%, transparent 72%)",
+          zIndex: 0, pointerEvents: "none",
+        }} />
+        <div style={{
+          position: "absolute", top: 20, right: -80,
+          width: 300, height: 300, borderRadius: "50%",
+          background: "radial-gradient(circle, #bfdbfe 0%, transparent 70%)",
+          zIndex: 0, pointerEvents: "none",
+        }} />
+
+        <div style={{ position: "relative", zIndex: 1, maxWidth: 720, margin: "0 auto", padding: "52px 32px 40px" }}>
           <div style={{
             display: "inline-flex", alignItems: "center", gap: 7,
-            background: "var(--accent-soft)", borderRadius: 20,
-            padding: "5px 14px", marginBottom: 18,
-            border: "1px solid var(--line)",
+            background: "linear-gradient(135deg, #eff6ff, #dbeafe)",
+            borderRadius: 24, padding: "6px 16px", marginBottom: 20,
+            border: "1px solid #bfdbfe",
           }}>
-            <div style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--accent)" }} />
-            <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--accent-deep)", letterSpacing: "0.01em" }}>
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#1d4ed8", display: "inline-block", boxShadow: "0 0 0 3px #bfdbfe" }} />
+            <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "#134E8A", letterSpacing: "0.03em" }}>
               Cek kecocokan CV
             </span>
           </div>
           <h1 style={{
-            fontSize: "1.9rem", fontWeight: 700,
-            color: "var(--ink)", marginBottom: 10, letterSpacing: "-0.02em",
+            fontSize: "2rem", fontWeight: 800,
+            color: "#0F2A4A", marginBottom: 10, letterSpacing: "-0.03em",
           }}>
             Upload loker, CV, dan portofoliomu
           </h1>
-          <p style={{ color: "var(--ink-soft)", fontSize: "0.97rem", maxWidth: 520, lineHeight: 1.65 }}>
+          <p style={{ color: "#3A5878", fontSize: "0.97rem", maxWidth: 520, lineHeight: 1.65 }}>
             Skor kecocokan dan 3 saran teratas selalu gratis — tidak perlu daftar atau bayar dulu.
           </p>
         </div>
+      </div>
 
+      <div style={{ maxWidth: 720, margin: "0 auto", padding: "0 32px 80px" }}>
         <form onSubmit={handleSubmit}>
           {/* Job Posting */}
-          <SectionCard title="1. Lowongan yang ingin kamu lamar">
-            {/* Tabs */}
+          <SectionCard title="Lowongan yang ingin kamu lamar" step="1">
             <div style={{
               display: "flex", gap: 4, marginBottom: 18,
-              background: "var(--accent-soft)", borderRadius: 10, padding: 4,
+              background: "#eff6ff", borderRadius: 10, padding: 4,
               width: "fit-content",
             }}>
               {(["link", "pdf", "image"] as UploadTab[]).map((tab) => (
@@ -192,52 +233,34 @@ export default function UploadPage() {
                   value={jobUrl}
                   onChange={(e) => setJobUrl(e.target.value)}
                 />
-                <p style={{ fontSize: "0.76rem", color: "var(--muted)", marginTop: 6 }}>
+                <p style={{ fontSize: "0.76rem", color: "#94a3b8", marginTop: 6 }}>
                   Masukkan URL halaman loker. Untuk LinkedIn/Glints, sebaiknya gunakan upload PDF karena scraping mungkin terbatas.
                 </p>
               </div>
             )}
 
             {jobTab === "pdf" && (
-              <DropZone
-                label="Upload PDF loker (job description)"
-                accept=".pdf"
-                onFile={setJobFile}
-                file={jobFile}
-              />
+              <DropZone label="Upload PDF loker (job description)" accept=".pdf" onFile={setJobFile} file={jobFile} />
             )}
-
             {jobTab === "image" && (
-              <DropZone
-                label="Upload screenshot loker (PNG/JPG/WEBP)"
-                accept=".png,.jpg,.jpeg,.webp"
-                onFile={setJobFile}
-                file={jobFile}
-              />
+              <DropZone label="Upload screenshot loker (PNG/JPG/WEBP)" accept=".png,.jpg,.jpeg,.webp" onFile={setJobFile} file={jobFile} />
             )}
           </SectionCard>
 
           {/* CV */}
-          <SectionCard title="2. CV kamu">
+          <SectionCard title="CV kamu" step="2">
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+              <DropZone label="Upload CV (PDF)" accept=".pdf" onFile={setCvFile} file={cvFile} />
               <div>
-                <DropZone
-                  label="Upload CV (PDF)"
-                  accept=".pdf"
-                  onFile={setCvFile}
-                  file={cvFile}
-                />
-              </div>
-              <div>
-                <div style={{ fontSize: "0.8rem", color: "var(--muted)", marginBottom: 8, textAlign: "center" }}>atau</div>
+                <div style={{ fontSize: "0.8rem", color: "#94a3b8", marginBottom: 8, textAlign: "center" }}>atau</div>
                 <input
-                  style={{ ...inputStyle, marginTop: 0 }}
+                  style={inputStyle}
                   type="url"
                   placeholder="Link Google Docs CV kamu"
                   value={cvUrl}
                   onChange={(e) => setCvUrl(e.target.value)}
                 />
-                <p style={{ fontSize: "0.76rem", color: "var(--muted)", marginTop: 6 }}>
+                <p style={{ fontSize: "0.76rem", color: "#94a3b8", marginTop: 6 }}>
                   Contoh: https://docs.google.com/document/d/...
                 </p>
               </div>
@@ -245,14 +268,9 @@ export default function UploadPage() {
           </SectionCard>
 
           {/* Portfolio */}
-          <SectionCard title="3. Portofolio (opsional, tapi nilai tambah besar)">
+          <SectionCard title="Portofolio (opsional, tapi nilai tambah besar)" step="3">
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-              <DropZone
-                label="Upload file portofolio (PDF/gambar)"
-                accept=".pdf,.png,.jpg,.jpeg"
-                onFile={setPortfolioFile}
-                file={portfolioFile}
-              />
+              <DropZone label="Upload file portofolio (PDF/gambar)" accept=".pdf,.png,.jpg,.jpeg" onFile={setPortfolioFile} file={portfolioFile} />
               <div>
                 <input
                   style={inputStyle}
@@ -261,7 +279,7 @@ export default function UploadPage() {
                   value={portfolioUrl}
                   onChange={(e) => setPortfolioUrl(e.target.value)}
                 />
-                <p style={{ fontSize: "0.76rem", color: "var(--muted)", marginTop: 6 }}>
+                <p style={{ fontSize: "0.76rem", color: "#94a3b8", marginTop: 6 }}>
                   GitHub, Behance, Dribbble, Notion, atau situs personal.
                 </p>
               </div>
@@ -270,15 +288,16 @@ export default function UploadPage() {
 
           {/* Privacy note */}
           <div style={{
-            background: "var(--accent-soft)", borderRadius: 10,
-            padding: "14px 18px", marginBottom: 24,
+            background: "linear-gradient(135deg, #eff6ff, #dbeafe)",
+            borderRadius: 12, padding: "14px 18px", marginBottom: 20,
             display: "flex", gap: 10, alignItems: "flex-start",
+            border: "1px solid #bfdbfe",
           }}>
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0, marginTop: 2 }}>
-              <rect x="3.5" y="7" width="9" height="6.5" rx="1.4" stroke="var(--accent-deep)" strokeWidth="1.4"/>
-              <path d="M5.5 7V5A2.5 2.5 0 0110.5 5V7" stroke="var(--accent-deep)" strokeWidth="1.4"/>
+              <rect x="3.5" y="7" width="9" height="6.5" rx="1.4" stroke="#134E8A" strokeWidth="1.4"/>
+              <path d="M5.5 7V5A2.5 2.5 0 0110.5 5V7" stroke="#134E8A" strokeWidth="1.4"/>
             </svg>
-            <p style={{ fontSize: "0.82rem", color: "var(--accent-deep)" }}>
+            <p style={{ fontSize: "0.82rem", color: "#134E8A" }}>
               Data CV dan lokermu diproses secara aman dan hanya digunakan untuk analisis ini. Kamu bisa menghapus data kapan saja.
             </p>
           </div>
@@ -286,7 +305,7 @@ export default function UploadPage() {
           {error && (
             <div style={{
               background: "#FEF2F2", border: "1px solid #FECACA",
-              borderRadius: 10, padding: "12px 16px", marginBottom: 20,
+              borderRadius: 10, padding: "12px 16px", marginBottom: 16,
               fontSize: "0.88rem", color: "#DC2626",
             }}>
               {error}
@@ -298,33 +317,30 @@ export default function UploadPage() {
             disabled={loading || !canSubmit}
             style={{
               width: "100%", padding: "15px 24px",
-              background: loading || !canSubmit ? "var(--muted)" : "var(--accent)",
-              color: "#fff", border: "none", borderRadius: 10,
-              fontSize: "1rem", fontWeight: 600,
+              background: loading || !canSubmit
+                ? "#94a3b8"
+                : "linear-gradient(135deg, #1d4ed8, #3b82f6)",
+              color: "#fff", border: "none", borderRadius: 12,
+              fontSize: "1rem", fontWeight: 700,
               cursor: loading || !canSubmit ? "not-allowed" : "pointer",
               transition: "all 0.15s",
               letterSpacing: "-0.01em",
+              boxShadow: loading || !canSubmit ? "none" : "0 4px 16px rgba(59,130,246,0.35)",
             }}
           >
-            {loading ? (
-              <span>Menganalisis... ini butuh beberapa detik</span>
-            ) : (
-              <span>Cek kecocokan CV — gratis</span>
-            )}
+            {loading ? "Menganalisis... ini butuh beberapa detik" : "Cek kecocokan CV — gratis →"}
           </button>
 
           {loading && (
             <div style={{ marginTop: 16, textAlign: "center" }}>
-              <div style={{ fontSize: "0.86rem", color: "var(--ink-soft)", marginBottom: 8 }}>
+              <div style={{ fontSize: "0.86rem", color: "#3A5878", marginBottom: 10 }}>
                 Sedang menganalisis loker, CV, dan portofoliomu...
               </div>
-              <div style={{
-                height: 4, borderRadius: 2, background: "var(--line)",
-                overflow: "hidden",
-              }}>
+              <div style={{ height: 5, borderRadius: 99, background: "#e0eefb", overflow: "hidden" }}>
                 <div style={{
-                  height: "100%", background: "var(--accent)",
-                  borderRadius: 2, width: "60%",
+                  height: "100%",
+                  background: "linear-gradient(90deg, #1d4ed8, #3b82f6, #0ea5e9)",
+                  borderRadius: 99, width: "60%",
                   animation: "progress-pulse 1.5s ease-in-out infinite",
                 }} />
               </div>

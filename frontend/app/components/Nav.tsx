@@ -1,14 +1,16 @@
 import Link from "next/link";
+import Image from "next/image";
 
 export default function Nav() {
   return (
     <header style={{
-      borderBottom: "1px solid var(--line)",
-      background: "rgba(245, 249, 253, 0.92)",
-      backdropFilter: "blur(8px)",
+      borderBottom: "1px solid #e0eefb",
+      background: "rgba(255, 255, 255, 0.92)",
+      backdropFilter: "blur(12px)",
       position: "sticky",
       top: 0,
       zIndex: 50,
+      boxShadow: "0 1px 12px rgba(15,42,74,0.06)",
     }}>
       <div style={{
         maxWidth: 1160,
@@ -21,35 +23,39 @@ export default function Nav() {
       }}>
         <Link href="/" style={{
           fontWeight: 700,
-          fontSize: "1.25rem",
+          fontSize: "1.2rem",
           display: "flex",
           alignItems: "center",
           gap: 9,
-          color: "var(--ink)",
-          letterSpacing: "-0.02em",
+          color: "#0F2A4A",
+          letterSpacing: "-0.025em",
         }}>
-          <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
-            <rect width="28" height="28" rx="8" fill="var(--accent)"/>
-            <path d="M8 14C8 10.686 10.686 8 14 8C17.314 8 20 10.686 20 14" stroke="white" strokeWidth="2" strokeLinecap="round"/>
-            <circle cx="14" cy="18" r="3" fill="white"/>
-          </svg>
+          <Image
+            src="/logo-ergon-box.png"
+            alt="Ergon logo"
+            width={36}
+            height={36}
+            style={{ borderRadius: 8 }}
+            priority
+          />
           Ergon
         </Link>
 
-        <nav style={{ display: "flex", gap: 28, fontSize: "0.9rem", color: "var(--ink-soft)" }}>
-          <Link href="/#how" style={{ color: "var(--ink-soft)", fontWeight: 500 }}>Cara kerja</Link>
-          <Link href="/#unlock" style={{ color: "var(--ink-soft)", fontWeight: 500 }}>Harga</Link>
-          <Link href="/#soon" style={{ color: "var(--ink-soft)", fontWeight: 500 }}>Wawancara AI</Link>
+        <nav style={{ display: "flex", gap: 24, fontSize: "0.9rem" }}>
+          <Link href="/#how" style={{ color: "#3A5878", fontWeight: 500 }}>Cara kerja</Link>
+          <Link href="/#unlock" style={{ color: "#3A5878", fontWeight: 500 }}>Harga</Link>
+          <Link href="/#soon" style={{ color: "#3A5878", fontWeight: 500 }}>Wawancara AI</Link>
         </nav>
 
         <Link href="/upload" style={{
-          background: "var(--accent)",
+          background: "linear-gradient(135deg, #1d4ed8, #3b82f6)",
           color: "#fff",
           padding: "10px 22px",
           borderRadius: 10,
           fontSize: "0.9rem",
           fontWeight: 600,
           letterSpacing: "-0.01em",
+          boxShadow: "0 2px 10px rgba(59,130,246,0.30)",
         }}>
           Coba gratis
         </Link>

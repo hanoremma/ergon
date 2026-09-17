@@ -20,36 +20,71 @@ mcp = FastMCP(
     instructions="MCP server untuk analisis portofolio: GitHub, Behance, situs personal, PDF case study.",
 )
 
-WATSONX_API_KEY = os.getenv("WATSONX_API_KEY", "")
-WATSONX_URL = os.getenv("WATSONX_URL", "https://us-south.ml.cloud.ibm.com")
-WATSONX_PROJECT_ID = os.getenv("WATSONX_PROJECT_ID", "")
+# OpenAI-compatible endpoint (same as resume-parser & scoring-engine)
+OPENAI_COMPAT_BASE_URL = os.getenv("OPENAI_COMPATIBLE_BASE_URL", "").rstrip("/")
+OPENAI_COMPAT_API_KEY  = os.getenv("OPENAI_COMPATIBLE_API_KEY", "")
+OPENAI_COMPAT_MODEL    = os.getenv("OPENAI_COMPAT_PORTFOLIO_MODEL", os.getenv("OPENAI_COMPAT_CV_MODEL", "gemini/gemini-3.5-flash-lite"))
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
 
 
-async def call_granite(prompt: str) -> str:
-    iam_url = "https://iam.cloud.ibm.com/identity/token"
-    async with httpx.AsyncClient(timeout=30) as client:
+def _parse_openai_response(raw: str) -> str:
+    """Parse both non-streaming JSON and SSE streaming responses."""
+    raw = raw.strip()
+    if not raw:
+        return ""
+    stripped = raw.lstrip()
+    if stripped.startswith("{"):
         try:
-            token_resp = await client.post(
-                iam_url,
-                data={"grant_type": "urn:ibm:params:oauth:grant-type:apikey", "apikey": WATSONX_API_KEY},
-            )
-            token_resp.raise_for_status()
-            iam_token = token_resp.json()["access_token"]
+            import json as _json
+            decoder = _json.JSONDecoder()
+            data, _ = decoder.raw_decode(stripped)
+            msg = data["choices"][0]["message"]
+            return msg.get("content", "") or ""
+        except Exception:
+            pass
+    # SSE streaming fallback
+    content = ""
+    for line in raw.splitlines():
+        if line.startswith("data:"):
+            chunk = line[5:].strip()
+            if chunk == "[DONE]":
+                break
+            try:
+                import json as _json
+                obj = _json.loads(chunk)
+                delta = obj.get("choices", [{}])[0].get("delta", {})
+                content += delta.get("content", "") or ""
+            except Exception:
+                pass
+    return content
+
+
+async def call_granite(prompt: str) -> str:
+    """Call LLM via OpenAI-compatible endpoint."""
+    if not OPENAI_COMPAT_BASE_URL or not OPENAI_COMPAT_API_KEY:
+        return ""
+    try:
+        async with httpx.AsyncClient(timeout=45) as client:
             resp = await client.post(
-                f"{WATSONX_URL}/ml/v1/text/generation?version=2024-05-31",
-                headers={"Authorization": f"Bearer {iam_token}", "Content-Type": "application/json"},
+                f"{OPENAI_COMPAT_BASE_URL}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {OPENAI_COMPAT_API_KEY}",
+                    "Content-Type": "application/json",
+                },
                 json={
-                    "model_id": "ibm/granite-13b-instruct-v2",
-                    "project_id": WATSONX_PROJECT_ID,
-                    "input": prompt,
-                    "parameters": {"max_new_tokens": 800, "temperature": 0.1},
+                    "model": OPENAI_COMPAT_MODEL,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": 800,
+                    "temperature": 0.1,
+                    "stream": False,
                 },
             )
             resp.raise_for_status()
-            return resp.json()["results"][0]["generated_text"]
-        except Exception:
-            return ""
+            return _parse_openai_response(resp.text)
+    except Exception as e:
+        import sys
+        print(f"[portfolio-analyzer] call_granite error: {e}", file=sys.stderr)
+        return ""
 
 
 @mcp.tool()
@@ -113,22 +148,27 @@ async def analyze_github_portfolio(
 
     top_languages = sorted(lang_count.items(), key=lambda x: x[1], reverse=True)
 
-    # Score relevance using Granite
+    # Score relevance using LLM — always attempt if repos exist
     relevance_score = 50  # default
     relevance_notes = []
-    if job_requirements and top_repos:
+    if top_repos:
         repos_summary = "\n".join([
             f"- {r['name']}: {r['description'] or 'No description'} ({r['language'] or 'unknown'})"
             for r in top_repos[:5]
         ])
+        req_text = (
+            f"Requirement loker: {', '.join(job_requirements[:10])}"
+            if job_requirements
+            else f"Bahasa utama: {', '.join([l for l, _ in top_languages[:3]])}"
+        )
         prompt = f"""Berdasarkan repo GitHub berikut:
 {repos_summary}
 
-Dan requirement loker: {', '.join(job_requirements[:10])}
+{req_text}
 
 Berikan:
-1. Skor relevansi 0-100
-2. 2-3 catatan spesifik
+1. Skor relevansi 0-100 (seberapa kuat portofolio ini secara teknis)
+2. 2-3 catatan spesifik tentang kekuatan atau kelemahan
 
 Format JSON:
 {{"relevance_score": 75, "notes": ["catatan 1", "catatan 2"]}}
@@ -136,11 +176,12 @@ Format JSON:
 JSON:"""
         try:
             llm_output = await call_granite(prompt)
-            json_match = re.search(r"\{.*\}", llm_output, re.DOTALL)
-            if json_match:
-                parsed = json.loads(json_match.group())
-                relevance_score = parsed.get("relevance_score", 50)
-                relevance_notes = parsed.get("notes", [])
+            if llm_output:
+                json_match = re.search(r"\{.*\}", llm_output, re.DOTALL)
+                if json_match:
+                    parsed = json.loads(json_match.group())
+                    relevance_score = parsed.get("relevance_score", 50)
+                    relevance_notes = parsed.get("notes", [])
         except Exception:
             pass
 
@@ -213,14 +254,16 @@ JSON:"""
 
     try:
         llm_output = await call_granite(prompt)
-        json_match = re.search(r"\{.*\}", llm_output, re.DOTALL)
-        if json_match:
-            data = json.loads(json_match.group())
-            data["available"] = True
-            data["source_url"] = portfolio_url
-            return data
-    except Exception:
-        pass
+        if llm_output:
+            json_match = re.search(r"\{.*\}", llm_output, re.DOTALL)
+            if json_match:
+                data = json.loads(json_match.group())
+                data["available"] = True
+                data["source_url"] = portfolio_url
+                return data
+    except Exception as e:
+        import sys
+        print(f"[portfolio-analyzer] analyze_portfolio_url LLM error: {e}", file=sys.stderr)
 
     return {
         "available": True,
@@ -228,7 +271,7 @@ JSON:"""
         "detected_projects": [],
         "skill_signals": [],
         "relevance_score": 50,
-        "relevance_notes": ["Parsing portofolio tidak optimal"],
+        "relevance_notes": ["LLM tidak dapat menghasilkan analisis — pastikan OPENAI_COMPATIBLE_BASE_URL dan OPENAI_COMPATIBLE_API_KEY dikonfigurasi"],
     }
 
 
@@ -298,20 +341,22 @@ JSON:"""
 
     try:
         llm_output = await call_granite(prompt)
-        json_match = re.search(r"\{.*\}", llm_output, re.DOTALL)
-        if json_match:
-            data = json.loads(json_match.group())
-            data["available"] = True
-            return data
-    except Exception:
-        pass
+        if llm_output:
+            json_match = re.search(r"\{.*\}", llm_output, re.DOTALL)
+            if json_match:
+                data = json.loads(json_match.group())
+                data["available"] = True
+                return data
+    except Exception as e:
+        import sys
+        print(f"[portfolio-analyzer] analyze_portfolio_file LLM error: {e}", file=sys.stderr)
 
     return {
         "available": True,
         "detected_projects": [],
         "skill_signals": [],
         "relevance_score": 50,
-        "relevance_notes": ["Parsing file portofolio tidak optimal"],
+        "relevance_notes": ["LLM tidak dapat menghasilkan analisis — pastikan OPENAI_COMPATIBLE_BASE_URL dan OPENAI_COMPATIBLE_API_KEY dikonfigurasi"],
     }
 
 

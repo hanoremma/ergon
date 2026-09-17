@@ -82,66 +82,97 @@ const faqs = [
 
 export default function FAQPage() {
   return (
-    <div style={{ background: "var(--bg-page)", minHeight: "100vh" }}>
+    <div style={{ background: "#fff", minHeight: "100vh", overflowX: "hidden" }}>
       <Nav />
 
-      <div style={{ maxWidth: 760, margin: "0 auto", padding: "52px 32px 88px" }}>
-        {/* Header */}
-        <div style={{ marginBottom: 48 }}>
+      {/* Page header */}
+      <div style={{ position: "relative", overflow: "hidden", background: "#fff" }}>
+        <div style={{
+          position: "absolute", top: -80, left: -120,
+          width: 440, height: 440, borderRadius: "50%",
+          background: "radial-gradient(circle, #dbeafe 0%, #eff6ff 50%, transparent 72%)",
+          zIndex: 0, pointerEvents: "none",
+        }} />
+        <div style={{
+          position: "absolute", top: 20, right: -80,
+          width: 280, height: 280, borderRadius: "50%",
+          background: "radial-gradient(circle, #bfdbfe 0%, transparent 70%)",
+          zIndex: 0, pointerEvents: "none",
+        }} />
+        <div style={{ position: "relative", zIndex: 1, maxWidth: 760, margin: "0 auto", padding: "52px 32px 40px" }}>
           <div style={{
             display: "inline-flex", alignItems: "center", gap: 7,
-            background: "var(--accent-soft)", borderRadius: 20,
-            padding: "5px 14px", marginBottom: 16,
-            border: "1px solid var(--line)",
+            background: "linear-gradient(135deg, #eff6ff, #dbeafe)",
+            borderRadius: 24, padding: "6px 16px", marginBottom: 20,
+            border: "1px solid #bfdbfe",
           }}>
-            <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--accent-deep)" }}>Dukungan</span>
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#1d4ed8", display: "inline-block" }} />
+            <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "#134E8A", letterSpacing: "0.03em" }}>Dukungan</span>
           </div>
-          <h1 style={{ fontSize: "2rem", fontWeight: 800, color: "var(--ink)", letterSpacing: "-0.025em", marginBottom: 10 }}>
+          <h1 style={{ fontSize: "2rem", fontWeight: 800, color: "#0F2A4A", letterSpacing: "-0.03em", marginBottom: 10 }}>
             Pertanyaan yang Sering Diajukan
           </h1>
-          <p style={{ fontSize: "0.97rem", color: "var(--ink-soft)", lineHeight: 1.65 }}>
-            Tidak menemukan jawaban yang kamu cari? <a href="/contact" style={{ color: "var(--accent)", fontWeight: 500 }}>Hubungi kami</a> langsung.
+          <p style={{ fontSize: "0.97rem", color: "#3A5878", lineHeight: 1.65 }}>
+            Tidak menemukan jawaban yang kamu cari?{" "}
+            <a href="/contact" style={{ color: "#1d4ed8", fontWeight: 600 }}>Hubungi kami</a> langsung.
           </p>
         </div>
+      </div>
 
+      <div style={{ maxWidth: 760, margin: "0 auto", padding: "8px 32px 88px" }}>
         {/* FAQ sections */}
         <div style={{ display: "flex", flexDirection: "column", gap: 40 }}>
           {faqs.map((section) => (
             <div key={section.section}>
-              <h2 style={{
-                fontSize: "0.76rem", fontWeight: 700, color: "var(--accent)",
-                textTransform: "uppercase", letterSpacing: "0.08em",
-                marginBottom: 20,
-              }}>
-                {section.section}
-              </h2>
-              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+                <div style={{
+                  height: 1, flex: 1,
+                  background: "linear-gradient(90deg, #bfdbfe, transparent)",
+                }} />
+                <span style={{
+                  fontSize: "0.72rem", fontWeight: 700, color: "#1d4ed8",
+                  textTransform: "uppercase", letterSpacing: "0.08em",
+                  background: "linear-gradient(135deg, #eff6ff, #dbeafe)",
+                  padding: "4px 14px", borderRadius: 20, border: "1px solid #bfdbfe",
+                }}>
+                  {section.section}
+                </span>
+                <div style={{ height: 1, flex: 1, background: "linear-gradient(90deg, transparent, #bfdbfe)" }} />
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                 {section.items.map((item, i) => (
                   <details key={i} style={{
                     background: "#fff",
-                    border: "1.5px solid var(--line)",
-                    borderRadius: 12,
+                    border: "1.5px solid #e0eefb",
+                    borderRadius: 14,
                     overflow: "hidden",
+                    boxShadow: "0 1px 4px rgba(15,42,74,0.04)",
                   }}>
                     <summary style={{
                       padding: "16px 20px",
-                      fontSize: "0.92rem", fontWeight: 600,
-                      color: "var(--ink)", cursor: "pointer",
+                      fontSize: "0.93rem", fontWeight: 600,
+                      color: "#0F2A4A", cursor: "pointer",
                       listStyle: "none",
                       display: "flex", justifyContent: "space-between", alignItems: "center",
                       userSelect: "none",
                     }}>
                       {item.q}
-                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0, marginLeft: 12 }}>
-                        <path d="M4 6L8 10L12 6" stroke="var(--muted)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                      </svg>
+                      <div style={{
+                        width: 24, height: 24, borderRadius: "50%", flexShrink: 0, marginLeft: 12,
+                        background: "#eff6ff", border: "1px solid #bfdbfe",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                      }}>
+                        <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                          <path d="M4 6L8 10L12 6" stroke="#1d4ed8" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                      </div>
                     </summary>
                     <div style={{
-                      padding: "0 20px 18px",
-                      fontSize: "0.89rem", color: "var(--ink-soft)",
+                      padding: "14px 20px 18px",
+                      fontSize: "0.9rem", color: "#3A5878",
                       lineHeight: 1.7,
-                      borderTop: "1px solid var(--line)",
-                      paddingTop: 14,
+                      borderTop: "1px solid #e0eefb",
+                      background: "#f8fbff",
                     }}>
                       {item.a}
                     </div>
@@ -154,23 +185,31 @@ export default function FAQPage() {
 
         {/* CTA */}
         <div style={{
-          marginTop: 56, background: "var(--bg-hero)",
-          border: "1.5px solid var(--line)", borderRadius: 16,
-          padding: "28px 32px", textAlign: "center",
+          marginTop: 56,
+          background: "linear-gradient(145deg, #0F2A4A, #1a3a5c)",
+          borderRadius: 20, padding: "36px 40px",
+          textAlign: "center", position: "relative", overflow: "hidden",
         }}>
-          <h3 style={{ fontSize: "1.1rem", fontWeight: 700, color: "var(--ink)", marginBottom: 8 }}>
+          <div style={{
+            position: "absolute", top: -40, right: -40,
+            width: 200, height: 200, borderRadius: "50%",
+            background: "radial-gradient(circle, rgba(59,130,246,0.2) 0%, transparent 70%)",
+            pointerEvents: "none",
+          }} />
+          <h3 style={{ fontSize: "1.15rem", fontWeight: 700, color: "#fff", marginBottom: 8, position: "relative" }}>
             Masih ada pertanyaan?
           </h3>
-          <p style={{ fontSize: "0.9rem", color: "var(--ink-soft)", marginBottom: 20 }}>
+          <p style={{ fontSize: "0.9rem", color: "rgba(255,255,255,0.6)", marginBottom: 24, position: "relative" }}>
             Tim kami siap membantu kamu melalui email.
           </p>
           <a href="/contact" style={{
-            display: "inline-block",
-            background: "var(--accent)", color: "#fff",
-            padding: "11px 26px", borderRadius: 10,
-            fontWeight: 600, fontSize: "0.9rem",
+            display: "inline-block", position: "relative",
+            background: "linear-gradient(135deg, #1d4ed8, #3b82f6)",
+            color: "#fff", padding: "12px 28px", borderRadius: 12,
+            fontWeight: 600, fontSize: "0.93rem",
+            boxShadow: "0 4px 16px rgba(59,130,246,0.4)",
           }}>
-            Hubungi kami
+            Hubungi kami →
           </a>
         </div>
       </div>
