@@ -31,7 +31,7 @@ Langflow Desktop (:7860)   ← orchestrator flow opsional (company_intel, dll.)
 | Komponen | Versi minimum | Keterangan |
 |----------|--------------|------------|
 | Python   | 3.10+        | Global (untuk MCP servers) |
-| Node.js  | 18+          | Untuk frontend Next.js |
+| Node.js  | 18.17+       | Untuk frontend Next.js dan helper job scraper |
 | npm      | 9+           | |
 | Langflow Desktop | terbaru | Download dari [langflow.org](https://langflow.org) — opsional, untuk flow company_intel |
 
@@ -127,6 +127,16 @@ MCP servers menggunakan Python **global** (bukan venv backend):
 pip install fastmcp httpx python-dotenv pydantic beautifulsoup4 lxml `
     PyMuPDF pytesseract Pillow reportlab python-docx requests
 ```
+
+Job scraper juga membutuhkan Node.js/npm untuk Cheerio dan Puppeteer. Script
+`start-mcp-servers.ps1` menginstal dependensinya otomatis. Pengambilan halaman
+URL loker dicoba berurutan: direct fetch + Cheerio, lalu (untuk host Jobstreet)
+API detail Jobstreet, lalu Jina Reader, lalu Puppeteer headless + Cheerio.
+Untuk host anti-bot/SPA (LinkedIn, Glints, Indeed, dst), setelah direct fetch
+gagal sistem mencoba **Puppeteer dulu**, baru Jina Reader. Jina Reader menerima
+URL yang diminta, sehingga isi URL tersebut diproses oleh layanan pihak ketiga.
+Jika kamu punya API key Jina, set `JINA_API_KEY` di root `.env` / `backend\.env`
+untuk rate limit lebih longgar.
 
 ---
 
@@ -444,7 +454,7 @@ Pastikan `resume-parser-mcp` (:8003) berjalan dan dapat menjangkau LLM endpoint.
 
 **`status: mock` di job_data**
 
-Job scraping dari Glints/Jobstreet sering di-blokir (HTTP 403). Ini normal — pipeline fallback ke LLM domain relevance menggunakan nama posisi dari URL slug. Upload job description sebagai PDF untuk hasil terbaik.
+Job scraping dari Glints/Jobstreet sering di-blokir (HTTP 403). Ini normal — pipeline fallback ke LLM domain relevance menggunakan nama posisi dari URL slug. Upload job description sebagai PDF untuk hasil terbaik. Tiered scrape (direct → Jina/Puppeteer) sudah di-hardening, tapi board besar tetap bisa gagal.
 
 **Backend crash saat start**
 

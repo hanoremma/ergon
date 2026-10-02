@@ -16,6 +16,19 @@ pip install fastmcp httpx python-dotenv pydantic beautifulsoup4 lxml `
 Write-Host "  Dependencies installed." -ForegroundColor Green
 Write-Host ""
 
+# ── 1b. Install job scraper's Cheerio/Puppeteer helper ────────────────────────
+$jobScraperDir = Join-Path $root "mcp-servers\job-scraper-mcp"
+if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
+    throw "Node.js/npm is required by the job scraper's Cheerio/Puppeteer fallback."
+}
+Write-Host "Installing job scraper browser dependencies..." -ForegroundColor Yellow
+npm install --prefix $jobScraperDir --no-audit --no-fund
+if ($LASTEXITCODE -ne 0) {
+    throw "Failed to install the job scraper's Node.js dependencies."
+}
+Write-Host "  Job scraper dependencies installed." -ForegroundColor Green
+Write-Host ""
+
 # ── 2. Set env vars dari env.example ─────────────────────────────────────────
 $envFile = Join-Path $root "backend\.env"
 if (-not (Test-Path $envFile)) { $envFile = Join-Path $root "backend\env.example" }
