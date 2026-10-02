@@ -6,7 +6,7 @@ import asyncio, json
 import httpx
 
 LANGFLOW_BASE = "http://localhost:7860"
-API_KEY = "sk-ZXzWNdZqieHFGRTHN_AplG5JHVybs6umO0hYvlpZN5s"
+API_KEY = "*************************************"
 HEADERS = {"x-api-key": API_KEY, "Content-Type": "application/json"}
 
 SERVERS = [
