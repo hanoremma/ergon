@@ -9,6 +9,8 @@ import os
 import re
 import json
 import base64
+import asyncio
+from pathlib import Path
 import httpx
 from typing import Optional
 from pydantic import BaseModel
@@ -25,6 +27,19 @@ mcp = FastMCP(
 OPENAI_COMPAT_BASE_URL = os.getenv("OPENAI_COMPATIBLE_BASE_URL", "").rstrip("/")
 OPENAI_COMPAT_API_KEY  = os.getenv("OPENAI_COMPATIBLE_API_KEY", "")
 OPENAI_COMPAT_MODEL    = os.getenv("OPENAI_COMPAT_JOB_MODEL", "gemini/gemini-3.5-flash-lite")
+JINA_API_KEY = os.getenv("JINA_API_KEY", "").strip()
+
+# Hosts that often require a real browser render before text/markdown tiers help.
+CSR_HEAVY_JOB_HOSTS = (
+    "linkedin.com",
+    "glints.com",
+    "glints.id",
+    "indeed.com",
+    "jobsdb.com",
+    "jobstreet.com",
+    "jobstreet.co.id",
+    "karir.com",
+)
 
 
 # ─── Schema ─────────────────────────────────────────────────────────────────────
@@ -135,6 +150,168 @@ JSON:
 ```"""
 
 
+async def _run_cheerio_helper(mode: str, value: str) -> str:
+    """Run the Node.js Cheerio helper to extract readable job-page content."""
+    helper_path = Path(__file__).with_name("scraper.cjs")
+    command = ["node", str(helper_path), mode]
+    payload = value.encode("utf-8") if mode == "html" else None
+    if mode == "render":
+        command.append(value)
+    process = await asyncio.create_subprocess_exec(
+        *command,
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(
+            process.communicate(payload),
+            timeout=45 if mode == "render" else 10,
+        )
+    except asyncio.TimeoutError:
+        process.kill()
+        await process.wait()
+        raise RuntimeError(f"Cheerio helper timed out in {mode} mode")
+    if process.returncode != 0:
+        error = stderr.decode("utf-8", errors="replace").strip()
+        raise RuntimeError(error or f"Cheerio helper exited with status {process.returncode}")
+    try:
+        result = json.loads(stdout.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("Cheerio helper returned invalid JSON") from exc
+    if not isinstance(result, dict) or not isinstance(result.get("text"), str):
+        raise RuntimeError("Cheerio helper returned an invalid response")
+    return result["text"]
+
+
+def _host_matches(host: str, domains: tuple[str, ...]) -> bool:
+    normalized = (host or "").lower()
+    return any(
+        normalized == domain or normalized.endswith(f".{domain}")
+        for domain in domains
+    )
+
+
+def _usable_job_text(text: str) -> bool:
+    normalized = re.sub(r"\s+", " ", text).strip()
+    if len(normalized) < 200:
+        return False
+    blocked_page_markers = (
+        "verify you are human",
+        "checking your browser",
+        "access denied",
+        "enable javascript and cookies",
+        "enable javascript and cookies to continue",
+        "sign in to view",
+        "just a moment",
+        "attention required",
+        "are you a robot",
+        "are you a human",
+        "please complete the security check",
+        "pardon our interruption",
+        "cf-browser-verification",
+        "cf_chl_opt",
+        "unusual traffic from your computer network",
+        "access to this page has been denied",
+    )
+    lowered = normalized.lower()
+    return not any(marker in lowered for marker in blocked_page_markers)
+
+
+_PARTIAL_FIELD_PATTERNS = {
+    "position": re.compile(
+        r"(?im)^\s*(?:position|title|job title|role|posisi|jabatan|lowongan)\s*[:\-–]\s*(.+)$"
+    ),
+    "company": re.compile(
+        r"(?im)^\s*(?:company|perusahaan|employer|nama perusahaan|company name)\s*[:\-–]\s*(.+)$"
+    ),
+    "location": re.compile(
+        r"(?im)^\s*(?:location|lokasi|workplace|work location|lokasi kerja)\s*[:\-–]\s*(.+)$"
+    ),
+    "salary_range": re.compile(
+        r"(?im)^\s*(?:salary|gaji|compensation|upah|rentang gaji)\s*[:\-–]\s*(.+)$"
+    ),
+}
+
+
+def _partial_job_data_from_text(raw_text: str, notes: list[str]) -> JobData:
+    """Best-effort labeled-field extraction when LLM parsing is unavailable."""
+    local_notes = list(notes)
+    data = JobData(raw_text=raw_text[:500], extraction_notes=local_notes)
+    matched = False
+    for field, pattern in _PARTIAL_FIELD_PATTERNS.items():
+        match = pattern.search(raw_text)
+        if not match:
+            continue
+        value = match.group(1).strip().strip("\"'")
+        if value:
+            setattr(data, field, value[:200])
+            matched = True
+    if matched:
+        local_notes.append(
+            "LLM parsing gagal; memakai regex parsial untuk field lowongan berlabel."
+        )
+    else:
+        local_notes.append(
+            "LLM parsing gagal dan regex parsial tidak menemukan field berlabel."
+        )
+    data.extraction_notes = local_notes
+    return data
+
+
+async def _fetch_jina_reader_text(url: str) -> str:
+    headers = {
+        "Accept": "text/plain",
+        "X-Return-Format": "markdown",
+    }
+    if JINA_API_KEY:
+        headers["Authorization"] = f"Bearer {JINA_API_KEY}"
+    async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
+        response = await client.get(
+            f"https://r.jina.ai/{url}",
+            headers=headers,
+        )
+        response.raise_for_status()
+        return response.text.strip()
+
+
+async def _fetch_jobstreet_job_text(url: str) -> Optional[str]:
+    """Use Jobstreet's job-detail endpoint when its public page is not readable."""
+    host = httpx.URL(url).host.lower()
+    if not (host == "jobstreet.com" or host.endswith(".jobstreet.com")
+            or host == "jobstreet.co.id" or host.endswith(".jobstreet.co.id")):
+        return None
+    job_id_match = re.search(r"-(\d{6,12})(?:[/?#]|$)", url)
+    if not job_id_match:
+        return None
+
+    async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+        response = await client.post(
+            "https://xapi.supercharge-srp.co/job-search/graphql?country=id&isSmartSearch=true",
+            headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"},
+            json={
+                "query": (
+                    'query GetJobDetail($jobId: String!) { jobDetail(jobId: $jobId, '
+                    'locale: "id") { id title companyDetail { name } '
+                    'jobDetail { jobDescription jobRequirement } } }'
+                ),
+                "variables": {"jobId": job_id_match.group(1)},
+            },
+        )
+        response.raise_for_status()
+        job = response.json().get("data", {}).get("jobDetail", {})
+    if not job or not job.get("title"):
+        return None
+    detail = job.get("jobDetail", {})
+    company = job.get("companyDetail", {})
+    return (
+        f"Position: {job.get('title', '')}\n"
+        f"Company: {company.get('name', '')}\n"
+        f"Description:\n{detail.get('jobDescription', '')}\n"
+        f"Requirements:\n{detail.get('jobRequirement', '')}"
+    )
+
+
 # ─── Tool: Extract from URL ──────────────────────────────────────────────────────
 
 @mcp.tool()
@@ -151,75 +328,93 @@ async def extract_job_from_url(url: str) -> dict:
     notes = []
     raw_text = ""
 
-    # ── Jobstreet: try their GraphQL/API endpoint first ──────────────────────────
-    if "jobstreet.co.id" in url or "jobstreet.com" in url:
-        import re as _re
-        job_id_match = _re.search(r"-(\d{6,12})(?:[/?#]|$)", url)
-        if job_id_match:
-            job_id = job_id_match.group(1)
-            api_url = f"https://xapi.supercharge-srp.co/job-search/graphql?country=id&isSmartSearch=true"
-            gql_query = {
-                "query": "query GetJobDetail($jobId: String!) { jobDetail(jobId: $jobId, locale: \"id\") { id title companyDetail { name } jobDetail { jobDescription jobRequirement } } }",
-                "variables": {"jobId": job_id}
-            }
-            try:
-                async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
-                    gql_resp = await client.post(api_url,
-                        headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"},
-                        json=gql_query)
-                    if gql_resp.status_code == 200:
-                        gql_data = gql_resp.json()
-                        jd = gql_data.get("data", {}).get("jobDetail", {})
-                        if jd and jd.get("title"):
-                            detail = jd.get("jobDetail", {})
-                            raw_text = (
-                                f"Position: {jd.get('title', '')}\n"
-                                f"Company: {jd.get('companyDetail', {}).get('name', '')}\n"
-                                f"Description:\n{detail.get('jobDescription', '')}\n"
-                                f"Requirements:\n{detail.get('jobRequirement', '')}"
-                            )
-                            notes.append(f"Scraped via Jobstreet GraphQL API (job_id={job_id})")
-            except Exception as gql_err:
-                notes.append(f"Jobstreet API failed: {str(gql_err)}")
-
     try:
-        if not raw_text:
-            async with httpx.AsyncClient(
-                timeout=20,
-                headers={
-                    "User-Agent": (
-                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                        "AppleWebKit/537.36 (KHTML, like Gecko) "
-                        "Chrome/124.0.0.0 Safari/537.36"
-                    ),
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                    "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
-                    "Accept-Encoding": "gzip, deflate, br",
-                    "Referer": "https://www.google.com/",
-                    "sec-fetch-dest": "document",
-                    "sec-fetch-mode": "navigate",
-                },
-                follow_redirects=True,
-            ) as client:
-                resp = await client.get(url)
-                resp.raise_for_status()
-                html = resp.text
+        parsed_url = httpx.URL(url)
+    except (TypeError, httpx.InvalidURL) as exc:
+        return JobData(extraction_notes=[f"URL tidak valid: {exc}"]).model_dump()
+    if parsed_url.scheme not in ("http", "https") or not parsed_url.host:
+        return JobData(
+            extraction_notes=["URL harus menggunakan skema http atau https."],
+        ).model_dump()
 
-            # LinkedIn redirect ke halaman search/login jika URL tidak langsung ke job
-            if "linkedin.com" in url and "/jobs/view/" not in str(resp.url):
-                notes.append(f"LinkedIn redirect ke {resp.url} — mungkin perlu login.")
+    request_headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
+    }
+    host = parsed_url.host.lower()
+    use_csr_priority = _host_matches(host, CSR_HEAVY_JOB_HOSTS)
 
-            from bs4 import BeautifulSoup as _BS
-            soup = _BS(html, "lxml")
-            for tag in soup(["script", "style", "nav", "footer", "header"]):
-                tag.decompose()
-            raw_text = soup.get_text(separator="\n", strip=True)
-            raw_text = re.sub(r"\n{3,}", "\n\n", raw_text)
+    # Tier 1: fetch the original page and parse its HTML with Cheerio.
+    try:
+        async with httpx.AsyncClient(
+            timeout=20,
+            headers=request_headers,
+            follow_redirects=True,
+        ) as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            direct_text = await _run_cheerio_helper("html", response.text)
+        if _usable_job_text(direct_text):
+            raw_text = direct_text
+            notes.append("Scraped via direct fetch + Cheerio.")
+        else:
+            notes.append("Direct fetch tidak menghasilkan konten lowongan yang cukup; mencoba fallback.")
+    except Exception as exc:
+        notes.append(f"Direct fetch + Cheerio gagal: {exc}")
 
-    except Exception as e:
-        notes.append(f"Gagal mengambil URL: {str(e)}")
-        if not raw_text:
-            return JobData(extraction_notes=notes, raw_text="").model_dump()
+    # Preserve Jobstreet's site-specific extraction when its page/API is available.
+    if not raw_text:
+        try:
+            jobstreet_text = await _fetch_jobstreet_job_text(url)
+            if jobstreet_text and _usable_job_text(jobstreet_text):
+                raw_text = jobstreet_text
+                notes.append("Scraped via Jobstreet job-detail API.")
+        except Exception as exc:
+            notes.append(f"Jobstreet API gagal: {exc}")
+
+    async def _try_jina_reader() -> None:
+        nonlocal raw_text
+        if raw_text:
+            return
+        try:
+            jina_text = await _fetch_jina_reader_text(url)
+            if _usable_job_text(jina_text):
+                raw_text = jina_text
+                notes.append("Scraped via Jina Reader API.")
+            else:
+                notes.append("Jina Reader tidak menghasilkan konten lowongan yang cukup.")
+        except Exception as exc:
+            notes.append(f"Jina Reader gagal: {exc}")
+
+    async def _try_puppeteer() -> None:
+        nonlocal raw_text
+        if raw_text:
+            return
+        try:
+            rendered_text = await _run_cheerio_helper("render", url)
+            if _usable_job_text(rendered_text):
+                raw_text = rendered_text
+                notes.append("Scraped via Puppeteer headless + Cheerio.")
+            else:
+                notes.append("Puppeteer tidak menghasilkan konten lowongan yang cukup.")
+        except Exception as exc:
+            notes.append(f"Puppeteer headless gagal: {exc}")
+
+    # Tier 2/3: Jina Reader then Puppeteer (CSR-heavy hosts try Puppeteer first).
+    if use_csr_priority:
+        await _try_puppeteer()
+        await _try_jina_reader()
+    else:
+        await _try_jina_reader()
+        await _try_puppeteer()
+
+    if not raw_text:
+        return JobData(extraction_notes=notes, raw_text="").model_dump()
 
     # Parse with LLM
     try:
@@ -230,15 +425,15 @@ async def extract_job_from_url(url: str) -> dict:
         json_match = re.search(r"\{.*\}", llm_clean, re.DOTALL)
         if json_match:
             parsed = json.loads(json_match.group())
-            parsed["raw_text"] = raw_text[:500]
-            parsed["extraction_notes"] = notes
-            return parsed
+            if isinstance(parsed, dict) and "error" not in parsed:
+                parsed["raw_text"] = raw_text[:500]
+                parsed["extraction_notes"] = notes
+                return parsed
+            notes.append("LLM mengembalikan error; mencoba parse parsial.")
     except Exception as e:
-        notes.append(f"LLM parsing gagal, menggunakan regex fallback: {str(e)}")
+        notes.append(f"LLM parsing gagal: {str(e)}")
 
-    # Regex fallback
-    job_data = JobData(raw_text=raw_text[:500], extraction_notes=notes)
-    return job_data.model_dump()
+    return _partial_job_data_from_text(raw_text, notes).model_dump()
 
 
 # ─── Tool: Extract from PDF ──────────────────────────────────────────────────────
@@ -335,4 +530,3 @@ async def extract_job_from_image(image_base64: str, filename: str = "job.png") -
 if __name__ == "__main__":
     port = int(os.getenv("JOB_SCRAPER_MCP_PORT", "8001"))
     mcp.run(transport="streamable-http", host="0.0.0.0", port=port, path="/mcp")
-

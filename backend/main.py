@@ -121,10 +121,10 @@ async def call_mcp_tool(tool_name: str, arguments: dict, mcp_url: str = None) ->
             "Content-Type": "application/json",
             "mcp-session-id": session,
         }
-        # job-scraper needs ~20s (scraping+LLM), resume-parser needs ~45s (LLM),
+        # Job scraper may use all three fetch tiers plus LLM extraction.
         # portfolio-analyzer needs ~30s (GitHub API + LLM), scoring <12s
         if target == MCP_JOB_SCRAPER_URL:
-            read_timeout = 60.0
+            read_timeout = 150.0
         elif target == MCP_RESUME_PARSER_URL:
             read_timeout = 105.0
         elif target == MCP_PORTFOLIO_URL:

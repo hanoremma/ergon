@@ -1,0 +1,13 @@
+{
+  "name": "ergon-job-scraper-helper",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Cheerio and Puppeteer helper for the Ergon job scraper",
+  "scripts": {
+    "test": "node --test scraper.test.cjs"
+  },
+  "dependencies": {
+    "cheerio": "1.0.0",
+    "puppeteer": "^24.0.0"
+  }
+}
