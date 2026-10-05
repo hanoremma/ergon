@@ -278,20 +278,16 @@ Start-Sleep -Seconds 45
 
 ## Langflow Flows (Opsional)
 
-6 flow tersimpan di Langflow Desktop. Untuk rebuild dari awal:
+6 flow tersimpan di Langflow Desktop. Untuk setup dari awal (buat flows + daftarkan MCP servers sekaligus):
 
 ```powershell
-$env:PYTHONIOENCODING = "utf-8"
-python create_langflow_flows.py
+python setup_langflow.py
 ```
 
-Flow IDs yang aktif tersimpan di `flow_ids.json`. Salin isinya ke `backend\.env`.
-
-Untuk mendaftarkan MCP servers ke Langflow (agar bisa dipakai di dalam flow):
-
-```powershell
-python register_mcp_servers.py
-```
+Script ini akan:
+1. Membuat 6 flow Ergon di Langflow (skip jika sudah ada)
+2. Mendaftarkan 7 MCP servers
+3. Menulis Flow IDs ke `backend\.env` dan snapshot ke `flow_ids.json`
 
 Atau manual: Langflow Desktop → **Settings → MCP Servers → Add** dengan URL berikut:
 
@@ -332,9 +328,9 @@ Hackathon/
 │   └── payment-mcp/         # Midtrans payment (:8007)
 ├── .env                     # Root env (sinkron dengan backend/.env)
 ├── start-mcp-servers.ps1    # Script starter semua MCP servers
-├── create_langflow_flows.py # Rebuild Langflow flows
-├── register_mcp_servers.py  # Register MCP ke Langflow
-└── flow_ids.json            # Flow IDs hasil create_langflow_flows.py
+├── setup_langflow.py        # Buat flows + daftarkan MCP servers ke Langflow
+├── update_env.py            # Update base URL / API key di .env
+└── flow_ids.json            # Flow IDs (di-generate oleh setup_langflow.py)
 ```
 
 ---
@@ -381,54 +377,38 @@ LLM endpoint yang digunakan Ergon berjalan di balik **tunnel sementara** (misaln
 
 Tandanya endpoint sudah expired: error `getaddrinfo failed`, `Connection refused`, `ERR_NAME_NOT_RESOLVED`, atau semua skor keluar `0` / analisis tidak selesai.
 
-### Langkah Menggantinya
+### Cara Cepat — Pakai `update_env.py`
 
-**1. Dapatkan URL tunnel baru** dari pengelola LLM server (atau jalankan ulang tunnel-nya). Format URL yang dibutuhkan:
+```powershell
+python update_env.py --base-url https://<tunnel-baru>.trycloudflare.com/v1
 ```
-https://<id-tunnel-baru>.trycloudflare.com/v1
-```
-atau format lain sesuai provider tunnel yang dipakai.
 
-**2. Update `backend\.env`** — buka file dan ganti nilai `OPENAI_COMPATIBLE_BASE_URL`:
-```env
-OPENAI_COMPATIBLE_BASE_URL=https://<id-tunnel-baru>.trycloudflare.com/v1
-```
-Simpan file.
+Script ini otomatis update `backend\.env` **dan** sinkronisasi ke root `.env`.
 
-**3. Sinkronkan ke root `.env`** — MCP servers membaca dari root workspace, bukan dari `backend\`:
+Untuk lihat nilai yang tersimpan saat ini:
+
+```powershell
+python update_env.py --show
+```
+
+Setelah update, restart layanan:
+
+```powershell
+Stop-Process -Name python -ErrorAction SilentlyContinue
+.\start-mcp-servers.ps1
+# Restart backend di Terminal 2 (Ctrl+C → jalankan ulang uvicorn)
+```
+
+### Cara Manual
+
+**1.** Update `OPENAI_COMPATIBLE_BASE_URL` di `backend\.env`
+
+**2.** Sinkronisasi ke root `.env`:
 ```powershell
 Copy-Item backend\.env .env
 ```
 
-**4. Restart semua layanan:**
-```powershell
-# Hentikan semua MCP server
-Stop-Process -Name python -ErrorAction SilentlyContinue
-
-# Restart MCP servers
-.\start-mcp-servers.ps1
-
-# Restart backend (Terminal 2) — Ctrl+C dulu, lalu:
-$envContent = Get-Content backend\.env
-foreach ($line in $envContent) {
-    if ($line -match "^([^#=\s][^=]*?)=(.*)$") {
-        [System.Environment]::SetEnvironmentVariable($matches[1].Trim(), ($matches[2].Trim() -replace '^"(.*)"$','$1'), "Process")
-    }
-}
-cd backend
-.\venv\Scripts\Activate.ps1
-uvicorn main:app --host 0.0.0.0 --port 8000 --log-level warning
-```
-
-**5. Verifikasi endpoint baru bisa dijangkau:**
-```powershell
-# Seharusnya mengembalikan JSON model list, bukan error
-Invoke-WebRequest "$env:OPENAI_COMPATIBLE_BASE_URL/models" `
-    -Headers @{ Authorization = "Bearer $env:OPENAI_COMPATIBLE_API_KEY" } `
-    -UseBasicParsing | Select-Object -ExpandProperty Content
-```
-
-> **Catatan:** Jika menggunakan model selain default, pastikan juga `OPENAI_COMPAT_CV_MODEL`, `OPENAI_COMPAT_SCORING_MODEL`, dan `OPENAI_COMPAT_JOB_MODEL` di `.env` mengarah ke nama model yang tersedia di endpoint baru.
+**3.** Restart MCP servers dan backend.
 
 ---
 
